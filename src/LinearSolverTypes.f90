@@ -105,9 +105,9 @@ MODULE LinearSolverTypes
   !> set enumeration scheme for TPLs
   INTEGER(SIK),PARAMETER,PUBLIC :: PETSC=0,TRILINOS=1,PARDISO_MKL=2,MKL=3,NATIVE=4
   !> Number of iterative solver solution methodologies - for error checking
-  INTEGER(SIK),PARAMETER :: MAX_IT_SOLVER_METHODS=3
+  INTEGER(SIK),PARAMETER :: MAX_IT_SOLVER_METHODS=4
   !> set enumeration scheme for iterative solver methods
-  INTEGER(SIK),PARAMETER,PUBLIC :: BICGSTAB=1,CGNR=2,GMRES=3
+  INTEGER(SIK),PARAMETER,PUBLIC :: BICGSTAB=1,CGNR=2,GMRES=3,MULTIGRID=4
   !> set enumeration scheme for direct solver methods
   INTEGER(SIK),PARAMETER,PUBLIC :: GE=1,LU=2,QR=3
 
@@ -298,6 +298,7 @@ MODULE LinearSolverTypes
       INTEGER(SIK) :: MPI_Comm_ID,numberOMP
       CHARACTER(LEN=256) :: timerName,ReqTPLTypeStr,TPLTypeStr,PreCondType
 #ifdef FUTILITY_HAVE_PETSC
+      KSP :: ksp_temp
       PC :: pc
       PetscErrorCode  :: iperr
 #endif
@@ -524,7 +525,10 @@ MODULE LinearSolverTypes
 
               solver%solverMethod=solverMethod
               solver%TPLType=TPLType
-              IF(TRIM(PreCondType) /= 'NOPC') THEN
+              IF(solverMethod == MULTIGRID) THEN
+                solver%PCTypeName='MULTIGRID'
+                solver%pciters=-1_SIK
+              ELSE IF(TRIM(PreCondType) /= 'NOPC') THEN
                 ! If pciters < 0 then preconditioning will always be used
                 ! Otherwise, pciters will be decremented, and preconditioning will stop
                 ! when pciters == 0
@@ -568,6 +572,8 @@ MODULE LinearSolverTypes
                     CALL KSPSetType(solver%ksp,KSPCGNE,iperr)
                   CASE(GMRES)
                     CALL KSPSetType(solver%ksp,KSPGMRES,iperr)
+                  CASE(MULTIGRID)
+                    CALL KSPSetType(solver%ksp,KSPRICHARDSON,iperr)
                 ENDSELECT
 
                 SELECTTYPE(A=>solver%A); TYPE IS(PETScMatrixType)
@@ -580,7 +586,9 @@ MODULE LinearSolverTypes
                 ENDSELECT
 
                 !Always use a nonzero initial guess:
-                CALL KSPSetInitialGuessNonzero(solver%ksp,PETSC_TRUE,iperr)
+                IF(solver%solverMethod /= MULTIGRID) &
+                  CALL KSPSetInitialGuessNonzero(solver%ksp,PETSC_TRUE,iperr)
+                !ZZZZ why doesnt this work for multigrid?
 
                 !set preconditioner
                 IF((solver%solverMethod == GMRES) .OR. (solver%solverMethod == BICGSTAB)) THEN
@@ -613,6 +621,14 @@ MODULE LinearSolverTypes
                   ELSE   ! Regardless of what else is set, we'll use block-jacobi ILU
                     CALL PCSetType(solver%pc,PCBJACOBI,iperr)
                   ENDIF
+                ELSEIF(solver%solverMethod == MULTIGRID) THEN
+                  CALL KSPGetPC(solver%ksp,solver%pc,iperr)
+                  CALL PCSetType(solver%pc,PCMG,iperr)
+                  CALL PCMGSetGalerkin(solver%pc,PETSC_TRUE,iperr)
+                  CALL PCMGSetLevels(solver%pc,1,PETSC_NULL_OBJECT,iperr) !TODO use some sort of mpi thing here?
+                  CALL PCMGGetSmoother(solver%pc,0,ksp_temp,iperr)
+                  CALL KSPSetType(ksp_temp,KSPGMRES,iperr)
+                  CALL KSPSetInitialGuessNonzero(ksp_temp,PETSC_TRUE,iperr)
                 ENDIF
                 CALL KSPSetFromOptions(solver%ksp,iperr)
 
@@ -1182,6 +1198,24 @@ MODULE LinearSolverTypes
                   CALL solveGMRES(solver)
                 ENDIF
             ENDSELECT
+          CASE(MULTIGRID)
+#ifdef FUTILITY_HAVE_PETSC
+            SELECTTYPE(A=>solver%A); TYPE IS(PETScMatrixType)
+              ! assemble matrix if necessary
+              IF(.NOT.(A%isAssembled)) CALL A%assemble()
+              SELECTTYPE(b=>solver%b); TYPE IS(PETScVectorType)
+                ! assemble source vector if necessary
+                IF(.NOT.(b%isAssembled)) CALL b%assemble()
+                SELECTTYPE(X=>solver%X); TYPE IS(PETScVectorType)
+                  ! assemble solution vector if necessary
+                  IF(.NOT.(X%isAssembled)) CALL X%assemble()
+                  ! solve
+                  CALL KSPSolve(solver%ksp,b%b,x%b,ierr)
+                  IF(ierr==0) solver%info=0
+                ENDSELECT
+              ENDSELECT
+            ENDSELECT
+#endif
         ENDSELECT
         CALL solver%SolveTime%toc()
       ENDIF
