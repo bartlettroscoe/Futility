@@ -3236,9 +3236,8 @@ CONTAINS
       LOGICAL(SBK) :: match
 
       INTEGER(SIK),PARAMETER :: n=65_SNK
-      INTEGER(SIK),PARAMETER :: nnz=65_SNK
 
-      ALLOCATE(LinearSolverType_Iterative :: thisLS)
+      ALLOCATE(LinearSolverType_Multigrid :: thisLS)
 
 #ifdef FUTILITY_HAVE_PETSC
       !The PETSC sparse matrix type
@@ -3251,11 +3250,23 @@ CONTAINS
       CALL pList%add('LinearSolverType->timerName','testTimer')
       CALL pList%add('LinearSolverType->matType',SPARSE)
       CALL pList%add('LinearSolverType->A->MatrixType->n',n)
-      CALL pList%add('LinearSolverType->A->MatrixType->nnz',nnz)
+      CALL pList%add('LinearSolverType->A->MatrixType->nnz',n*3-2)
       CALL pList%add('LinearSolverType->x->VectorType->n',n)
       CALL pList%add('LinearSolverType->b->VectorType->n',n)
       CALL pList%validate(pList,optListLS)
+
+      !Geometry dimensions for multigrid:
+      CALL pList%add('LinearSolverType->Multigrid->nx',n)
+      CALL pList%add('LinearSolverType->Multigrid->ny',1)
+      CALL pList%add('LinearSolverType->Multigrid->nz',1)
+      CALL pList%add('LinearSolverType->Multigrid->num_eqns',1)
+
+      !TODO make this test problem a coupled system of 2 equations
+
       CALL thisLS%init(pList)
+      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Multigrid)
+        CALL thisLS%setupInterpMats(pList)
+      ENDSELECT
 
       !A is a tridiagonal system with -1 on the offdiagonals, and
       !  2.5 on the diagonals.
@@ -3294,12 +3305,12 @@ CONTAINS
       ALLOCATE(x(n))
       x(1:(n-1)/2)=0.5_SRK
       x((n+1)/2:n)=1.1_SRK
-      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Iterative)
+      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Multigrid)
         CALL thisLS%setX0(x)
       ENDSELECT
 
       !set iterations and convergence information and build/set M
-      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Iterative)
+      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Multigrid)
         CALL thisLS%setConv(2_SIK,1.0E-9_SRK,1000_SIK,30_SIK)
       ENDSELECT
 
