@@ -61,17 +61,16 @@ PROGRAM testLinearSolver
 
   CREATE_TEST('Test Linear Solvers')
 
-  !REGISTER_SUBTEST('TESTING NORMS PROCEDURE',testNorms)
-  !REGISTER_SUBTEST('testClear',testClear)
-  !REGISTER_SUBTEST('testInit',testInit)
-  !REGISTER_SUBTEST('TestUpdatedA',testUpdatedA)
-  !REGISTER_SUBTEST('testDirectSolve',testDirectSolve)
-  !REGISTER_SUBTEST('testQRSolve',testQRSolve)
-  !REGISTER_SUBTEST('testIterativeOthers',testIterativeOthers)
-  !REGISTER_SUBTEST('testIterativeSolve_BICGSTAB',testIterativeSolve_BICGSTAB)
-  !REGISTER_SUBTEST('testiterativeSovle_CGNR',testIterativeSolve_CGNR)
-  !REGISTER_SUBTEST('testIterativeSolve_GMRES',testIterativeSolve_GMRES)
-  REGISTER_SUBTEST('testIterativeSolve_Multigrid',testIterativeSolve_Multigrid)
+  REGISTER_SUBTEST('TESTING NORMS PROCEDURE',testNorms)
+  REGISTER_SUBTEST('testClear',testClear)
+  REGISTER_SUBTEST('testInit',testInit)
+  REGISTER_SUBTEST('TestUpdatedA',testUpdatedA)
+  REGISTER_SUBTEST('testDirectSolve',testDirectSolve)
+  REGISTER_SUBTEST('testQRSolve',testQRSolve)
+  REGISTER_SUBTEST('testIterativeOthers',testIterativeOthers)
+  REGISTER_SUBTEST('testIterativeSolve_BICGSTAB',testIterativeSolve_BICGSTAB)
+  REGISTER_SUBTEST('testiterativeSovle_CGNR',testIterativeSolve_CGNR)
+  REGISTER_SUBTEST('testIterativeSolve_GMRES',testIterativeSolve_GMRES)
 
   FINALIZE_TEST()
 
@@ -3225,113 +3224,6 @@ CONTAINS
       CALL thisLS%clear()
 
     ENDSUBROUTINE testIterativeSolve_GMRES
-!
-!-------------------------------------------------------------------------------
-    SUBROUTINE testIterativeSolve_Multigrid()
-      CLASS(LinearSolverType_Base),ALLOCATABLE :: thisLS
-      REAL(SRK),ALLOCATABLE :: soln(:),b(:)
-      REAL(SRK),ALLOCATABLE :: A_temp(:,:)
-      REAL(SRK),POINTER :: x(:)
-      INTEGER(SIK) :: i
-      LOGICAL(SBK) :: match
-
-      INTEGER(SIK),PARAMETER :: n=65_SNK
-
-      ALLOCATE(LinearSolverType_Multigrid :: thisLS)
-
-#ifdef FUTILITY_HAVE_PETSC
-      !The PETSC sparse matrix type
-      ! initialize linear system
-      CALL pList%clear()
-      CALL pList%add('LinearSolverType->TPLType',PETSC)
-      CALL pList%add('LinearSolverType->solverMethod',MULTIGRID)
-      CALL pList%add('LinearSolverType->MPI_Comm_ID',PE_COMM_SELF)
-      CALL pList%add('LinearSolverType->numberOMP',1_SNK)
-      CALL pList%add('LinearSolverType->timerName','testTimer')
-      CALL pList%add('LinearSolverType->matType',SPARSE)
-      CALL pList%add('LinearSolverType->A->MatrixType->n',n)
-      CALL pList%add('LinearSolverType->A->MatrixType->nnz',n*3-2)
-      CALL pList%add('LinearSolverType->x->VectorType->n',n)
-      CALL pList%add('LinearSolverType->b->VectorType->n',n)
-      CALL pList%validate(pList,optListLS)
-
-      !Geometry dimensions for multigrid:
-      CALL pList%add('LinearSolverType->Multigrid->nx',n)
-      CALL pList%add('LinearSolverType->Multigrid->ny',1)
-      CALL pList%add('LinearSolverType->Multigrid->nz',1)
-      CALL pList%add('LinearSolverType->Multigrid->num_eqns',1)
-
-      !TODO make this test problem a coupled system of 2 equations
-
-      CALL thisLS%init(pList)
-      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Multigrid)
-        CALL thisLS%setupInterpMats(pList)
-      ENDSELECT
-
-      !A is a tridiagonal system with -1 on the offdiagonals, and
-      !  2.5 on the diagonals.
-      ALLOCATE(A_temp(n,n))
-      A_temp=0.0_SRK
-      SELECTTYPE(A => thisLS%A); TYPE IS(PETScMatrixType)
-      DO i=1,n
-        IF(i > 1) THEN
-          CALL A%set(i,i-1,-1.0_SRK)
-          A_temp(i,i-1)=-1.0_SRK
-        ENDIF
-        CALL A%set(i,i,2.5_SRK)
-        A_temp(i,i)=2.5_SRK
-        IF(i < 1) THEN
-          CALL A%set(i,i+1,-1.0_SRK)
-          A_temp(i,i+1)=-1.0_SRK
-        ENDIF
-      ENDDO
-      ENDSELECT
-
-      ! Create solution:
-      ALLOCATE(soln(n))
-      soln=1.0_SRK
-      soln(n/2)=2.0_SRK
-
-      ALLOCATE(b(n))
-      b=MATMUL(A_temp,soln)
-      DEALLOCATE(A_temp)
-
-      SELECTTYPE(LS_b => thisLS%b); TYPE IS(PETScVectorType)
-        CALL LS_b%setAll_array(b)
-      ENDSELECT
-      DEALLOCATE(b)
-
-      ! build x0
-      ALLOCATE(x(n))
-      x(1:(n-1)/2)=0.5_SRK
-      x((n+1)/2:n)=1.1_SRK
-      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Multigrid)
-        CALL thisLS%setX0(x)
-      ENDSELECT
-
-      !set iterations and convergence information and build/set M
-      SELECTTYPE(thisLS); TYPE IS(LinearSolverType_Multigrid)
-        CALL thisLS%setConv(2_SIK,1.0E-9_SRK,1000_SIK,30_SIK)
-      ENDSELECT
-
-      !solve it
-      CALL thisLS%solve()
-
-      SELECTTYPE(LS_x => thisLS%X); TYPE IS(PETScVectorType)
-        CALL LS_x%getAll(x)
-      ENDSELECT
-      match=ALL(ABS(x-soln) < 1.0E-6_SRK)
-      ASSERT(match, 'PETScIterative%solve() - Multigrid')
-
-      DEALLOCATE(soln)
-      DEALLOCATE(x)
-      CALL thisLS%A%clear()
-      CALL thisLS%clear()
-
-#endif
-      DEALLOCATE(thisLS)
-
-    ENDSUBROUTINE testIterativeSolve_Multigrid
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE testNorms()
