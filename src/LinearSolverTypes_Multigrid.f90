@@ -64,12 +64,20 @@ MODULE LinearSolverTypes_Multigrid
 ! List of public members
   PUBLIC :: LinearSolverType_Multigrid
 
+  INTEGER(SIK),PARAMETER :: max_levels=8_SIK
+
   !> @brief The extended type for the Iterative Linear Solver
   TYPE,EXTENDS(LinearSolverType_Iterative) :: LinearSolverType_Multigrid
     !> Number of grids:
     INTEGER(SIK) :: nLevels=1_SIK
     !> Whether or not the restriciton, interpolation, and smoothing is ready:
     LOGICAL(SBK) :: isMultigridSetup=.FALSE.
+    !> Size of each grid level_info(level,:) = (/num_eqns,nx,ny,nz/)
+    INTEGER(SIK),ALLOCATABLE :: level_info(:,:)
+#ifdef FUTILITY_HAVE_PETSC
+    !> Array of pointers to petsc interpolation matrices
+    Mat :: PetscInterpMats(max_levels)
+#endif
 
     CONTAINS
       !> @copybrief TODO
@@ -251,6 +259,7 @@ MODULE LinearSolverTypes_Multigrid
       KSP :: ksp_temp
       PC :: pc_temp
       PetscErrorCode  :: iperr
+      Mat :: mat_temp
 #endif
 
       IF(solver%isMultigridSetup) &
@@ -276,8 +285,7 @@ MODULE LinearSolverTypes_Multigrid
       !Number of levels required to reduce down to ~5*num_eqns unknowns per processor:
       solver%nLevels=FLOOR(log(MAX(nx-1,ny-1,nz-1)/ &
             solver%MPIParallelEnv%nproc/5.0_SRK)/log(2.0_SRK))+1
-      !Max of 8 levels:
-      solver%nLevels=MIN(solver%nLevels,8)
+      solver%nLevels=MIN(solver%nLevels,max_levels)
 
       IF(solver%nLevels < 2) &
           CALL eLinearSolverType%raiseDebug(modName//"::"//myName//" - "// &
@@ -291,7 +299,6 @@ MODULE LinearSolverTypes_Multigrid
         CALL PCMGSetLevels(solver%pc,solver%nLevels,PETSC_NULL_OBJECT,iperr) !TODO use some sort of mpi thing here?
 
         CALL matPList%clear()
-        !Would it be more efficient to use MAIJ?
         CALL matPList%add('MatrixType->matType',SPARSE)
         CALL matPList%add('MatrixType->engine',VM_PETSC)
         CALL matPList%add('MatrixType->n',n)
@@ -303,6 +310,8 @@ MODULE LinearSolverTypes_Multigrid
         nx_old=nx
         ny_old=ny
         nz_old=nz
+        ALLOCATE(solver%level_info(solver%nLevels,4))
+        solver%level_info(solver%nLevels,:)=(/num_eqns,nx,ny,nz/)
         DO iLevel=solver%nLevels-1,1,-1
           !Set the smoother:
           CALL PCMGGetSmoother(solver%pc,iLevel,ksp_temp,iperr)
@@ -312,7 +321,6 @@ MODULE LinearSolverTypes_Multigrid
           CALL PCSetType(pc_temp,PCSOR,iperr)
 
           !Create the interpolation operator:
-          !ALLOCATE(PETScMatrixType :: interpmat)
           nx_old=nx
           ny_old=ny
           nz_old=nz
@@ -333,6 +341,8 @@ MODULE LinearSolverTypes_Multigrid
           ENDIF
           CALL matPList%set('MatrixType->nnz',nnz)
 
+          !To be used by the interp/restrict functions:
+          solver%level_info(iLevel,:)=(/num_eqns,nx,ny,nz/)
           !Initialize interp, then set its values ZZZZ
           CALL MatrixFactory(interpmat,matPList)
           IF(.NOT. PRESENT(weights)) THEN !uniform weights will be used
@@ -386,16 +396,47 @@ MODULE LinearSolverTypes_Multigrid
           ENDSELECT
           DEALLOCATE(interpmat)
         ENDDO
+        !DO iLevel=1,solver%nLevels-1
+        !  CALL MatView(solver%interpMats(iLevel)%a,PETSC_VIEWER_STDOUT_WORLD,iperr)
+        !ENDDO
         !TODO determine coarsest smoother option
         !Set coarsest smoother options:
         CALL PCMGGetSmoother(solver%pc,0,ksp_temp,iperr)
         CALL KSPSetType(ksp_temp,KSPGMRES,iperr)
         CALL KSPSetInitialGuessNonzero(ksp_temp,PETSC_TRUE,iperr)
-        STOP
 #endif
       ENDIF
       solver%isMultigridSetup=.TRUE.
 
     ENDSUBROUTINE setupInterpMats_LinearSolverType_Multigrid
+!
+!-------------------------------------------------------------------------------
+!> @brief Clears the Multigrid Linear Solver Type
+!> @param solver The linear solver to act on
+!>
+!> This routine clears the data spaces for the iterative linear solver.
+!>
+    SUBROUTINE clear_LinearSolverType_Multigrid(solver)
+      CLASS(LinearSolverType_Multigrid),INTENT(INOUT) :: solver
+
+      INTEGER(SIK) :: iLevel
+
+#ifdef FUTILITY_HAVE_PETSC
+      PetscErrorCode :: iperr
+
+      IF(solver%isMultigridSetup) THEN
+        DO iLevel=1,solver%nLevels-1
+          !CALL MatDestroy(solver%PetscInterpMats(iLevel),iperr) !ZZZZ
+        ENDDO
+      ENDIF
+#endif
+
+      solver%isMultigridSetup=.FALSE.
+      IF(ALLOCATED(solver%level_info)) DEALLOCATE(solver%level_info)
+      solver%nLevels=1_SIK
+
+      CALL solver%LinearSolverType_Iterative%clear()
+
+    ENDSUBROUTINE clear_LinearSolverType_Multigrid
 
 ENDMODULE LinearSolverTypes_Multigrid
