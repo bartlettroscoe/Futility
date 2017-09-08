@@ -247,7 +247,6 @@ CONTAINS
 #ifdef FUTILITY_HAVE_PETSC
     SUBROUTINE testSetupPETScMG()
       TYPE(LinearSolverType_Multigrid) :: thisLS
-      KSP :: ksp_temp
       PC :: pc_temp
       KSPType :: ksptype
       PCType :: pctype
@@ -280,8 +279,7 @@ CONTAINS
 !-------------------------------------------------------------------------------
     SUBROUTINE testIterativeSolve_Multigrid()
       TYPE(LinearSolverType_Multigrid) :: thisLS
-      REAL(SRK),ALLOCATABLE :: soln(:),b(:)
-      REAL(SRK),ALLOCATABLE :: A_temp(:,:)
+      REAL(SRK),ALLOCATABLE :: soln(:)
       REAL(SRK),POINTER :: x(:)
       LOGICAL(SBK) :: match
       INTEGER(SIK) :: istt,istp
@@ -538,7 +536,7 @@ CONTAINS
 !-------------------------------------------------------------------------------
     SUBROUTINE preAllocInterpMatrices_1D2G_2proc(thisLS)
       TYPE(LinearSolverType_Multigrid),INTENT(INOUT) :: thisLS
-      INTEGER(SIK) :: iLevel,inx,nx,nx_old,ieqn,row,col
+      INTEGER(SIK) :: iLevel,inx,nx,nx_old,ieqn,row
       INTEGER(SIK),ALLOCATABLE :: dnnz(:),onnz(:)
 
 #ifdef FUTILITY_HAVE_PETSC
