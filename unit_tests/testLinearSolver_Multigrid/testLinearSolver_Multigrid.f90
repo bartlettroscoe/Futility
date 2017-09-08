@@ -234,8 +234,8 @@ CONTAINS
     SUBROUTINE testSetupPETScMG()
       TYPE(LinearSolverType_Multigrid) :: thisLS
       PC :: pc_temp
-      KSPType :: ksptype
-      PCType :: pctype
+      KSPType :: myksptype
+      PCType :: mypctype
       PetscErrorCode :: iperr
 
       CALL init_MultigridLS(thisLS)
@@ -244,11 +244,11 @@ CONTAINS
       CALL thisLS%setupPETScMG(pList)
       ASSERT(thisLS%isMultigridSetup,'LS%isMultigridSetup')
 
-      CALL KSPGetType(thisLS%ksp,ksptype,iperr)
-      ASSERT(ksptype == KSPRICHARDSON,'KSP type must be richardson for MG solver in PETSc')
+      CALL KSPGetType(thisLS%ksp,myksptype,iperr)
+      ASSERT(myksptype == KSPRICHARDSON,'KSP type must be richardson for MG solver in PETSc')
       CALL KSPGetPC(thisLS%ksp,pc_temp,iperr)
-      CALL PCGetType(pc_temp,pctype,iperr)
-      ASSERT(pctype == PCMG,'PC type should be Multigrid!')
+      CALL PCGetType(pc_temp,mypctype,iperr)
+      ASSERT(mypctype == PCMG,'PC type should be Multigrid!')
 
       CALL thisLS%clear()
       CALL mpiTestEnv%barrier()
