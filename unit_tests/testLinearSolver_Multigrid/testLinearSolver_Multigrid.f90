@@ -293,6 +293,13 @@ CONTAINS
 
 #ifdef FUTILITY_HAVE_PETSC
       !================ 1G Problem ============================
+#if ((PETSC_VERSION_MAJOR>=3) && (PETSC_VERSION_MINOR>=6))
+      !There is a bug that comes up in older versions when MatPtAP is used
+      !  for MPIAIJ matrices with only one MPI process.  MatPtAP is used in
+      !  the generation of the coarse grid operators from the interpolation
+      !  matrices.
+      !In newer versions, it still shows up as a memory problem on Valgrind,
+      !  but it should still give the right answer.
       IF(mpiTestEnv%master) THEN
         CALL init_MultigridLS(thisLS)
 
@@ -330,6 +337,7 @@ CONTAINS
         CALL thisLS%clear()
       ENDIF
       CALL mpiTestEnv%barrier()
+#endif
       !================ 1G Problem ============================
       !
       !
