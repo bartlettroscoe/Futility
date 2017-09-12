@@ -17,6 +17,7 @@ PROGRAM testLinearSolver_Multigrid
   USE MatrixTypes
   USE LinearSolverTypes
   USE LinearSolverTypes_Multigrid
+  USE MultigridMesh
 
   IMPLICIT NONE
 
@@ -69,6 +70,7 @@ PROGRAM testLinearSolver_Multigrid
   REGISTER_SUBTEST('testInit',testInit)
 #ifdef FUTILITY_HAVE_PETSC
   REGISTER_SUBTEST('testPreAllocPETScInterpMat',testPreAllocPETScInterpMat)
+  REGISTER_SUBTEST('testFillInterpMats',testFillInterpMats)
   REGISTER_SUBTEST('testSetupPETScMG',testSetupPETScMG)
 #endif
   REGISTER_SUBTEST('testIterativeSolve_Multigrid',testIterativeSolve_Multigrid)
@@ -230,6 +232,96 @@ CONTAINS
       CALL mpiTestEnv%barrier()
 
     ENDSUBROUTINE testPreAllocPETScInterpMat
+#endif
+!
+!-------------------------------------------------------------------------------
+#ifdef FUTILITY_HAVE_PETSC
+    SUBROUTINE testFillInterpMats()
+      TYPE(LinearSolverType_Multigrid) :: thisLS
+      TYPE(MultigridMeshStructureType) :: myMMeshes
+
+      INTEGER(SIK) :: iLevel,ix,ncol,nx
+      INTEGER(SIK),ALLOCATABLE :: cols(:)
+      REAL(SRK),ALLOCATABLE :: vals(:)
+      CHARACTER(LEN=2) :: tmpchar
+
+      LOGICAL(SBK) :: boolcols,boolvals
+
+      PetscErrorCode :: iperr
+
+      CALL init_MultigridLS(thisLS)
+
+      CALL myMMeshes%init(thisLS%nLevels)
+      DO iLevel=thisLS%nLevels-1,1,-1
+        nx=thisLS%level_info(2,iLevel+1)
+        myMMeshes%meshes(iLevel)%istt=1
+        myMMeshes%meshes(iLevel)%istp=nx
+        myMMeshes%meshes(iLevel)%nPointsLocal=nx
+        ALLOCATE(myMMeshes%meshes(iLevel)%mmData(1:nx))
+        ALLOCATE(myMMeshes%meshes(iLevel)%interpDegrees(1:nx))
+        DO ix=1,nx
+          IF(ix > 1 .AND. ix < nx) THEN
+            myMMeshes%meshes(iLevel)%mmData(ix)%nNeighLocal=2
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(2))
+            myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1)=ix-1
+            myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(2)=ix+1
+          ELSE
+            myMMeshes%meshes(iLevel)%mmData(ix)%nNeighLocal=1
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1))
+            IF(ix == 1) THEN
+              myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1)=2
+            ELSE
+              myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1)=nx-1
+            ENDIF
+          ENDIF
+          IF(MOD(ix,2) == 1) THEN
+            myMMeshes%meshes(iLevel)%interpDegrees(ix)=0
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1))
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childWeights(1))
+            myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1)=(ix+1)/2
+            myMMeshes%meshes(iLevel)%mmData(ix)%childWeights=1.0_SRK
+          ELSE
+            myMMeshes%meshes(iLevel)%interpDegrees(ix)=1
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(2))
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childWeights(2))
+            myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1)=ix/2
+            myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(2)=ix/2+1
+            myMMeshes%meshes(iLevel)%mmData(ix)%childWeights=0.5_SRK
+          ENDIF
+        ENDDO
+      ENDDO
+      CALL thisLS%fillInterpMats(myMMeshes)
+      CALL thisLS%setupPETScMG(pList)
+
+      ALLOCATE(vals(2),cols(2))
+      cols=0_SIK
+      DO iLevel=1,thisLS%nLevels-1
+        boolcols=.TRUE.
+        boolvals=.TRUE.
+        nx=thisLS%level_info(2,iLevel)
+        DO ix=1,nx
+          vals=0.0_SRK
+          CALL MatGetRow(thisLS%interpMats_PETSc(iLevel)%a,ix-1,ncol,cols,vals,iperr)
+          IF(MOD(ix,2) == 1) THEN
+            boolcols=(cols(1)==(ix-1)/2)
+            boolvals=vals(1)==1.0_SRK
+          ELSE
+            boolcols=(cols(1)==ix/2-1) .AND. (cols(2)==ix/2)
+            boolvals=ALL(vals(1:2)==0.5_SRK)
+          ENDIF
+          CALL MatRestoreRow(thisLS%interpMats_PETSc(iLevel)%a,1_SIK,ncol,cols,vals,iperr)
+          IF(.NOT. boolcols .OR. .NOT. boolvals .OR. iperr /= 0_SIK ) EXIT
+        ENDDO
+        WRITE(tmpchar,'(I2)') iLevel
+        ASSERT(boolcols,'Check interpolation matrix col indices for grid '//tmpchar)
+        ASSERT(boolvals,'Check interpolation matrix entries for grid '//tmpchar)
+        ASSERT(iperr == 0_SIK,'Error obtaining matrix entries for grid '//tmpchar)
+      ENDDO
+      DEALLOCATE(vals,cols)
+
+      CALL myMMeshes%clear()
+
+    ENDSUBROUTINE testFillInterpMats
 #endif
 !
 !-------------------------------------------------------------------------------

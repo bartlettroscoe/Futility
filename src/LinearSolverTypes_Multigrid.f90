@@ -44,6 +44,7 @@ MODULE LinearSolverTypes_Multigrid
   USE VectorTypes
   USE MatrixTypes
   USE LinearSolverTypes
+  USE MultigridMesh
   IMPLICIT NONE
   PRIVATE
 
@@ -69,7 +70,7 @@ MODULE LinearSolverTypes_Multigrid
     INTEGER(SIK) :: nLevels=1_SIK
     !> Whether or not the restriciton, interpolation, and smoothing is ready:
     LOGICAL(SBK) :: isMultigridSetup=.FALSE.
-    !> Size of each grid level_info(level,:) = (/num_eqns,nx,ny,nz/)
+    !> Size of each grid level_info(:,level) = (/num_eqns,nx,ny,nz/)
     INTEGER(SIK),ALLOCATABLE :: level_info(:,:)
     !> Size of each grid locally
     INTEGER(SIK),ALLOCATABLE :: level_info_local(:,:)
@@ -89,6 +90,9 @@ MODULE LinearSolverTypes_Multigrid
       !> @copybrief LinearSolverType_Multigrid::setupPETScMG_LinearSolverType_Multigrid
       !> @copydetails LinearSolverType_Multigrid::setupPETScMG_LinearSolverType_Multigrid
       PROCEDURE,PASS :: setupPETScMG => setupPETScMG_LinearSolverType_Multigrid
+      !> @copybrief LinearSolverType_Multigrid::fillInterpMats_LinearSolverType_Multigrid
+      !> @copydetails LinearSolverType_Multigrid::fillInterpMats_LinearSolverType_Multigrid
+      PROCEDURE,PASS :: fillInterpMats => fillInterpMats_LinearSolverType_Multigrid
       !> @copybrief  LinearSolverType_Multigrid::clear_LinearSolverType_Multigrid
       !> @copydetails LinearSolverType_Multigrid::clear_LinearSolverType_Multigrid
       PROCEDURE,PASS :: clear => clear_LinearSolverType_Multigrid
@@ -320,19 +324,28 @@ MODULE LinearSolverTypes_Multigrid
 !>        to grid iLevel
 !> @param dnnz dnnz(i) must provide the number of nonzero columns local to the
 !>             processor in local row i
-!> @param onnz onnz(i) must provide the number of nonzero columns external to
-!>             the processor in local row i
+!> @param onnz_in onnz_in(i) should provide the number of nonzero columns
+!>             external to the processor in local row i
 !>
     SUBROUTINE preAllocPETScInterpMat_LinearSolverType_Multigrid(solver, &
-       iLevel,dnnz,onnz)
+       iLevel,dnnz,onnz_in)
       CHARACTER(LEN=*),PARAMETER :: myName='preAllocPETScInterpMat_LinearSolverType_Multigrid'
       CLASS(LinearSolverType_Multigrid),INTENT(INOUT) :: solver
-      INTEGER(SIK),INTENT(IN) :: iLevel,dnnz(:),onnz(:)
+      INTEGER(SIK),INTENT(IN) :: iLevel,dnnz(:)
+      INTEGER(SIK),INTENT(IN),OPTIONAL :: onnz_in(:)
+      INTEGER(SIK),ALLOCATABLE :: onnz(:)
       INTEGER(SIK) :: nx,ny,nz,num_eqns,n
       INTEGER(SIK) :: nx_old,ny_old,nz_old,num_eqns_old,n_old
 
       TYPE(ParamType) :: matPList
       CLASS(MatrixType),POINTER :: interpmat => NULL()
+
+      ALLOCATE(onnz(SIZE(dnnz)))
+      IF(PRESENT(onnz_in)) THEN
+        onnz=onnz_in
+      ELSE
+        onnz=0_SIK
+      ENDIF
 
 #ifdef FUTILITY_HAVE_PETSC
       IF(solver%isInit) THEN
@@ -391,9 +404,63 @@ MODULE LinearSolverTypes_Multigrid
 #endif
 
       CALL matPList%clear()
+      DEALLOCATE(onnz)
 
 
     ENDSUBROUTINE preAllocPETScInterpMat_LinearSolverType_Multigrid
+!
+!-------------------------------------------------------------------------------
+!> @brief Allocate and fill in the PETSc interpolation matrices from a multigrid
+!>          mesh hierachy object
+!>
+!> @param solver The linear solver to act on
+!> @param myMMeshes Multigrid mesh hierachy with information regarding weights
+!>          and neighbors for each mesh
+!> @param preallocated Whether the interpolation matrices are already allocated
+!>          This is false by default
+!>
+    SUBROUTINE fillInterpMats_LinearSolverType_Multigrid(solver,myMMeshes,preallocated)
+      CHARACTER(LEN=*),PARAMETER :: myName='setupPETScMG_LinearSolverType_Multigrid'
+      CLASS(LinearSolverType_Multigrid),INTENT(INOUT) :: solver
+      TYPE(MultigridMeshStructureType),INTENT(IN) :: myMMeshes
+      LOGICAL(SBK),OPTIONAL :: preallocated
+
+      INTEGER(SIK) :: iLevel,ip,ichild,col
+      REAL(SRK) :: wt
+
+#ifdef FUTILITY_HAVE_PETSC
+      IF(solver%TPLType /= PETSC) &
+        CALL eLinearSolverType%raiseError('Incorrect call to '// &
+          modName//'::'//myName//' - This subroutine does not have a '// &
+          'non-PETSc implementation yet.')
+
+      IF(solver%nLevels /= myMMeshes%nLevels) &
+        CALL eLinearSolverType%raiseError('Incorrect call to '// &
+          modName//'::'//myName//' - Mismatch in grid and solver nLevels.')
+
+      DO iLevel=solver%nLevels-1,1,-1
+        !Allocate the interpolation matrix:
+        IF(.NOT.PRESENT(preallocated) .OR. .NOT.preallocated) THEN
+          CALL solver%preAllocPETScInterpMat(iLevel, &
+                  MAX(myMMeshes%meshes(iLevel)%interpDegrees*2,1))
+          !Note that if there is interpolation across processors, this does not
+          !  work
+        ENDIF
+        !Create the interpolation operator:
+        DO ip=myMMeshes%meshes(iLevel)%istt,myMMeshes%meshes(iLevel)%istp
+          DO ichild=1,MAX(myMMeshes%meshes(iLevel)%interpDegrees(ip)*2,1)
+            col=myMMeshes%meshes(iLevel)%mmData(ip)%childIndices(ichild)
+            wt=myMMeshes%meshes(iLevel)%mmData(ip)%childWeights(ichild)
+            CALL solver%interpMats_PETSc(iLevel)%set(ip,col,wt)
+          ENDDO
+        ENDDO
+      ENDDO !iLevel
+#else
+      CALL eLinearSolverType%raiseError('Incorrect call to '// &
+        modName//'::'//myName//' - This subroutine does not have a non-PETSc'// &
+        'implementation yet.')
+#endif
+    ENDSUBROUTINE fillInterpMats_LinearSolverType_Multigrid
 !
 !-------------------------------------------------------------------------------
 !> @brief Setup the PCMG environment in PETSc, finalize the interpolation operators
