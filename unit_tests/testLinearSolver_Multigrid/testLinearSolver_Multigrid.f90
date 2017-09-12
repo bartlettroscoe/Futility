@@ -229,7 +229,7 @@ CONTAINS
       ENDIF
       CALL mpiTestEnv%barrier()
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE testPreAllocPETScInterpMat
 #endif
 !
 !-------------------------------------------------------------------------------
@@ -256,7 +256,7 @@ CONTAINS
       CALL thisLS%clear()
       CALL mpiTestEnv%barrier()
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE testSetupPETScMG
 #endif
 !
 !-------------------------------------------------------------------------------
@@ -443,7 +443,7 @@ CONTAINS
       CALL thisLS%clear()
 #endif
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE testSetSmoother
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE init_MultigridLS(thisLS,num_eqns_in,nx_in,ny_in,nz_in,nprocs_in, &
@@ -525,7 +525,7 @@ CONTAINS
 
       CALL thisLS%init(pList)
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE init_MultigridLS
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE preAllocInterpMatrices_1D1G(thisLS)
@@ -555,7 +555,7 @@ CONTAINS
 
       ENDDO
 #endif
-    ENDSUBROUTINE
+    ENDSUBROUTINE preAllocInterpMatrices_1D1G
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE setupInterpMatrices_1D1G(thisLS)
@@ -580,7 +580,7 @@ CONTAINS
 
       ENDDO
 #endif
-    ENDSUBROUTINE
+    ENDSUBROUTINE setupInterpMatrices_1D1G
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE preAllocInterpMatrices_1D2G_2proc(thisLS)
@@ -613,7 +613,7 @@ CONTAINS
 
       ENDDO
 #endif
-    ENDSUBROUTINE
+    ENDSUBROUTINE preAllocInterpMatrices_1D2G_2proc
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE setupInterpMatrices_1D2G_2proc(thisLS)
@@ -655,7 +655,7 @@ CONTAINS
 
       ENDDO
 #endif
-    ENDSUBROUTINE
+    ENDSUBROUTINE setupInterpMatrices_1D2G_2proc
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE setupLinearProblem_1D1G(thisLS,soln)
@@ -698,7 +698,7 @@ CONTAINS
       DEALLOCATE(b)
 #endif
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE setupLinearProblem_1D1G
 !
 !-------------------------------------------------------------------------------
     SUBROUTINE setupLinearProblem_1D2G_2proc(thisLS,soln)
@@ -767,6 +767,6 @@ CONTAINS
 #endif
 #endif
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE setupLinearProblem_1D2G_2proc
 
 ENDPROGRAM testLinearSolver_Multigrid

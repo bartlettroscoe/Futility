@@ -393,7 +393,7 @@ MODULE LinearSolverTypes_Multigrid
       CALL matPList%clear()
 
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE preAllocPETScInterpMat_LinearSolverType_Multigrid
 !
 !-------------------------------------------------------------------------------
 !> @brief Setup the PCMG environment in PETSc, finalize the interpolation operators
@@ -532,7 +532,7 @@ MODULE LinearSolverTypes_Multigrid
       ENDDO
 #endif
 
-    ENDSUBROUTINE
+    ENDSUBROUTINE setSmoother_LinearSolverType_Multigrid
 !
 !-------------------------------------------------------------------------------
 !> @brief Clears the Multigrid Linear Solver Type
