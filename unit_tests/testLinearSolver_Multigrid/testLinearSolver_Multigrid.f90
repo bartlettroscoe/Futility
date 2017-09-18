@@ -162,7 +162,7 @@ CONTAINS
 !-------------------------------------------------------------------------------
     SUBROUTINE testInit()
       TYPE(LinearSolverType_Multigrid) :: thisLS
-      INTEGER(SIK) :: ref_level_info(4,4)
+      INTEGER(SIK) :: ref_level_info(2,4)
       LOGICAL(SBK) :: bool
 
       CALL pList%clear()
@@ -194,10 +194,10 @@ CONTAINS
          .AND. thisLS%OMPparallelEnv%isInit() )
       ASSERT(bool, 'Iterative%init(...)')
 
-      ref_level_info = RESHAPE((/1,9,1,1, &
-                                 1,17,1,1, &
-                                 1,33,1,1, &
-                                 1,65,1,1/),SHAPE(ref_level_info))
+      ref_level_info = RESHAPE((/1,9, &
+                                 1,17, &
+                                 1,33, &
+                                 1,65/),SHAPE(ref_level_info))
       ASSERT(thisLS%nLevels == 4,'Check number of multigrid levels')
       ASSERT(ALL(ref_level_info == thisLS%level_info),'Check grid sizes on each level.')
 
@@ -362,7 +362,7 @@ CONTAINS
       INTEGER(SIK),PARAMETER :: n=65_SNK
       INTEGER(SIK),PARAMETER :: n_2G=260_SNK
 
-      INTEGER(SIK) :: level_info(4,4),level_info_local(4,4)
+      INTEGER(SIK) :: level_info(2,4),level_info_local(2,4)
 
 #ifdef FUTILITY_HAVE_PETSC
       !================ 1G Problem ============================
@@ -421,8 +421,8 @@ CONTAINS
       !================ 2G,2-proc Problem ============================
 #ifdef HAVE_MPI
       IF(mpiTestEnv%nproc == 2) THEN
-        level_info=RESHAPE((/2,18,1,1,2,34,1,1,2,66,1,1,2,130,1,1/),(/4,4/))
-        level_info_local=RESHAPE((/2,9,1,1,2,17,1,1,2,33,1,1,2,65,1,1/),(/4,4/))
+        level_info=RESHAPE((/2,18,2,34,2,66,2,130/),(/2,4/))
+        level_info_local=RESHAPE((/2,9,2,17,2,33,2,65/),(/2,4/))
         CALL init_MultigridLS(thisLS,num_eqns_in=2_SIK,nx_in=130_SIK, &
                                 nprocs_in=2_SIK,level_info=level_info, &
                                 level_info_local=level_info_local,nlevels=4_SIK)

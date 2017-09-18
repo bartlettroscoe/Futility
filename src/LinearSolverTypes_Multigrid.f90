@@ -70,9 +70,9 @@ MODULE LinearSolverTypes_Multigrid
     INTEGER(SIK) :: nLevels=1_SIK
     !> Whether or not the restriciton, interpolation, and smoothing is ready:
     LOGICAL(SBK) :: isMultigridSetup=.FALSE.
-    !> Size of each grid level_info(:,level) = (/num_eqns,nx,ny,nz/)
+    !> Size of each grid. level_info(:,level) = (/num_eqns,npts/)
     INTEGER(SIK),ALLOCATABLE :: level_info(:,:)
-    !> Size of each grid locally
+    !> Size of each grid locally. level_info(:,level) = (/num_eqns_local,npts_local/)
     INTEGER(SIK),ALLOCATABLE :: level_info_local(:,:)
 #ifdef FUTILITY_HAVE_PETSC
     !> Array of PETSc interpolation matrices
@@ -249,10 +249,10 @@ MODULE LinearSolverTypes_Multigrid
                    'level_info not provided!')
 
           CALL Params%get('LinearSolverType->Multigrid->nLevels',solver%nLevels)
-          ALLOCATE(solver%level_info_local(4,solver%nLevels))
+          ALLOCATE(solver%level_info_local(2,solver%nLevels))
           CALL Params%get('LinearSolverType->Multigrid->level_info_local', &
                               solver%level_info_local)
-          ALLOCATE(solver%level_info(4,solver%nLevels))
+          ALLOCATE(solver%level_info(2,solver%nLevels))
           CALL Params%get('LinearSolverType->Multigrid->level_info', &
                               solver%level_info)
         ELSE
@@ -275,28 +275,16 @@ MODULE LinearSolverTypes_Multigrid
               CALL eLinearSolverType%raiseDebug(modName//"::"//myName//" - "// &
                      'The grid is too small to coarsen, using multigrid with '// &
                      ' only 1 level!')
-          ALLOCATE(solver%level_info_local(4,solver%nLevels))
-          solver%level_info_local(:,solver%nLevels)=(/num_eqns,nx,ny,nz/)
+          ALLOCATE(solver%level_info_local(2,solver%nLevels))
+          solver%level_info_local(:,solver%nLevels)=(/num_eqns,nx*ny*nz/)
           DO iLevel=solver%nLevels-1,1,-1
           !Setup the interpolation operator:
-            IF(nx > 3) THEN
-              nx=nx/2+1
-            ELSEIF(nx == 3) THEN
-              nx=1
-            ENDIF
-            IF(ny > 3) THEN
-              ny=ny/2+1
-            ELSEIF(ny == 3) THEN
-              ny=1
-            ENDIF
-            IF(nz > 3) THEN
-              nz=nz/2+1
-            ELSEIF(nz == 3) THEN
-              nz=1
-            ENDIF
-            solver%level_info_local(:,iLevel)=(/num_eqns,nx,ny,nz/)
+            nx=(nx+1)/2
+            ny=(ny+1)/2
+            nz=(nz+1)/2
+            solver%level_info_local(:,iLevel)=(/num_eqns,nx*ny*nz/)
           ENDDO !iLevel
-          ALLOCATE(solver%level_info(4,solver%nLevels))
+          ALLOCATE(solver%level_info(2,solver%nLevels))
           solver%level_info=solver%level_info_local
         ENDIF !manuallySetLevelInfo
 
@@ -304,7 +292,7 @@ MODULE LinearSolverTypes_Multigrid
         IF(PRODUCT(solver%level_info(:,solver%nLevels)) /= n) THEN
           CALL eLinearSolverType%raiseError(modName//"::"//myName//" - "// &
                  'number of unknowns (n) does not match provided '// &
-                 'nx,ny,nz,num_eqns')
+                 'npts,num_eqns')
         ENDIF
 
 #ifdef FUTILITY_HAVE_PETSC
@@ -337,8 +325,8 @@ MODULE LinearSolverTypes_Multigrid
       INTEGER(SIK),INTENT(IN) :: iLevel,dnnz(:)
       INTEGER(SIK),INTENT(IN),OPTIONAL :: onnz_in(:)
       INTEGER(SIK),ALLOCATABLE :: onnz(:)
-      INTEGER(SIK) :: nx,ny,nz,num_eqns,n
-      INTEGER(SIK) :: nx_old,ny_old,nz_old,num_eqns_old,n_old
+      INTEGER(SIK) :: npts,num_eqns,n
+      INTEGER(SIK) :: npts_old,num_eqns_old,n_old
 
       TYPE(ParamType) :: matPList
       CLASS(MatrixType),POINTER :: interpmat => NULL()
@@ -353,16 +341,12 @@ MODULE LinearSolverTypes_Multigrid
 #ifdef FUTILITY_HAVE_PETSC
       IF(solver%isInit) THEN
         num_eqns=solver%level_info(1,iLevel)
-        nx=solver%level_info(2,iLevel)
-        ny=solver%level_info(3,iLevel)
-        nz=solver%level_info(4,iLevel)
-        n=nx*ny*nz*num_eqns
+        npts=solver%level_info(2,iLevel)
+        n=npts*num_eqns
 
         num_eqns_old=solver%level_info(1,iLevel+1)
-        nx_old=solver%level_info(2,iLevel+1)
-        ny_old=solver%level_info(3,iLevel+1)
-        nz_old=solver%level_info(4,iLevel+1)
-        n_old=nx_old*ny_old*nz_old*num_eqns_old
+        npts_old=solver%level_info(2,iLevel+1)
+        n_old=npts_old*num_eqns_old
 
         CALL matPList%clear()
         CALL matPList%add('MatrixType->matType',SPARSE)
@@ -373,15 +357,11 @@ MODULE LinearSolverTypes_Multigrid
         CALL matPList%add('MatrixType->m',n)
 
         num_eqns=solver%level_info_local(1,iLevel)
-        nx=solver%level_info_local(2,iLevel)
-        ny=solver%level_info_local(3,iLevel)
-        nz=solver%level_info_local(4,iLevel)
-        n=nx*ny*nz*num_eqns
+        npts=solver%level_info_local(2,iLevel)
+        n=npts*num_eqns
         num_eqns_old=solver%level_info_local(1,iLevel+1)
-        nx_old=solver%level_info_local(2,iLevel+1)
-        ny_old=solver%level_info_local(3,iLevel+1)
-        nz_old=solver%level_info_local(4,iLevel+1)
-        n_old=nx_old*ny_old*nz_old*num_eqns_old
+        npts_old=solver%level_info_local(2,iLevel+1)
+        n_old=npts_old*num_eqns_old
         CALL matPList%add('MatrixType->nlocal',n_old)
         CALL matPList%add('MatrixType->mlocal',n)
 
