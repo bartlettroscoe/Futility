@@ -58,7 +58,7 @@ MODULE LinearSolverTypes_Multigrid
 ! List of public members
   PUBLIC :: LinearSolverType_Multigrid
 
-  INTEGER(SIK),PARAMETER :: max_levels=8_SIK
+  INTEGER(SIK),PARAMETER,PUBLIC :: MAX_MG_LEVELS=8_SIK
 
   !> Set enumeration scheme for smoother options:
   INTEGER(SIK),PARAMETER,PUBLIC :: SMOOTH_GS=0,SMOOTH_GMRES=1, &
@@ -93,6 +93,9 @@ MODULE LinearSolverTypes_Multigrid
       !> @copybrief LinearSolverType_Multigrid::fillInterpMats_LinearSolverType_Multigrid
       !> @copydetails LinearSolverType_Multigrid::fillInterpMats_LinearSolverType_Multigrid
       PROCEDURE,PASS :: fillInterpMats => fillInterpMats_LinearSolverType_Multigrid
+      !> @copybrief  LinearSolverType_Multigrid::solve_LinearSolverType_Multigrid
+      !> @copydetails LinearSolverType_Multigrid::solve_LinearSolverType_Multigrid
+      PROCEDURE,PASS :: solve => solve_LinearSolverType_Multigrid
       !> @copybrief  LinearSolverType_Multigrid::clear_LinearSolverType_Multigrid
       !> @copydetails LinearSolverType_Multigrid::clear_LinearSolverType_Multigrid
       PROCEDURE,PASS :: clear => clear_LinearSolverType_Multigrid
@@ -266,7 +269,7 @@ MODULE LinearSolverTypes_Multigrid
 
           !Number of levels required to reduce down to ~5*num_eqns unknowns per processor:
           solver%nLevels=FLOOR(log(MAX(nx-1,ny-1,nz-1)/5.0_SRK)/log(2.0_SRK))+1
-          solver%nLevels=MIN(solver%nLevels,max_levels)
+          solver%nLevels=MIN(solver%nLevels,MAX_MG_LEVELS)
           solver%nLevels=MAX(1,solver%nLevels)
           IF(solver%nLevels < 2) &
               CALL eLinearSolverType%raiseDebug(modName//"::"//myName//" - "// &
@@ -600,6 +603,23 @@ MODULE LinearSolverTypes_Multigrid
 #endif
 
     ENDSUBROUTINE setSmoother_LinearSolverType_Multigrid
+!
+!-------------------------------------------------------------------------------
+!> @brief Solves the Linear System with multigrid
+!> @param solver The linear solver to act on
+!>
+!>
+    SUBROUTINE solve_LinearSolverType_Multigrid(solver)
+      CHARACTER(LEN=*),PARAMETER :: myName='solve_LinearSolverType_Multigrid'
+      CLASS(LinearSolverType_Multigrid),INTENT(INOUT) :: solver
+
+      IF(.NOT. solver%isMultigridSetup) &
+        CALL eLinearSolverType%raiseError(modName//"::"//myName//" - "// &
+          "Multigrid needs to be setup before it can be used to solve!")
+
+      CALL solver%LinearSolverType_Iterative%solve()
+
+    ENDSUBROUTINE solve_LinearSolverType_Multigrid
 !
 !-------------------------------------------------------------------------------
 !> @brief Clears the Multigrid Linear Solver Type
