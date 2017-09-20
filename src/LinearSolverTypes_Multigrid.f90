@@ -389,7 +389,6 @@ MODULE LinearSolverTypes_Multigrid
       CALL matPList%clear()
       DEALLOCATE(onnz)
 
-
     ENDSUBROUTINE preAllocPETScInterpMat_LinearSolverType_Multigrid
 !
 !-------------------------------------------------------------------------------
@@ -421,11 +420,11 @@ MODULE LinearSolverTypes_Multigrid
         CALL eLinearSolverType%raiseError('Incorrect call to '// &
           modName//'::'//myName//' - Mismatch in grid and solver nLevels.')
 
-      DO iLevel=solver%nLevels-1,1,-1
+      DO iLevel=solver%nLevels,2,-1
         !Allocate the interpolation matrix:
         IF(.NOT.PRESENT(preallocated) .OR. .NOT.preallocated) THEN
-          CALL solver%preAllocPETScInterpMat(iLevel, &
-                  MAX(myMMeshes%meshes(iLevel)%interpDegrees*2,1))
+          CALL solver%preAllocPETScInterpMat(iLevel-1, &
+                  2**myMMeshes%meshes(iLevel)%interpDegrees)
           !Note that if there is interpolation across processors, this does not
           !  work
         ENDIF
@@ -434,7 +433,7 @@ MODULE LinearSolverTypes_Multigrid
           DO ichild=1,MAX(myMMeshes%meshes(iLevel)%interpDegrees(ip)*2,1)
             col=myMMeshes%meshes(iLevel)%mmData(ip)%childIndices(ichild)
             wt=myMMeshes%meshes(iLevel)%mmData(ip)%childWeights(ichild)
-            CALL solver%interpMats_PETSc(iLevel)%set(ip,col,wt)
+            CALL solver%interpMats_PETSc(iLevel-1)%set(ip,col,wt)
           ENDDO
         ENDDO
       ENDDO !iLevel

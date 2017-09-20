@@ -74,10 +74,14 @@ MODULE MultigridMesh
   ENDTYPE MultigridMeshElementType
 
   TYPE :: MultigridMeshType
-    !> Which level the mesh corresponds to (0 = coarsest)
+    !> Which level the mesh corresponds to (1 = coarsest)
     INTEGER(SIK) :: iLevel
     !> Whether or not it is the finest level:
     LOGICAL(SBK) :: isFinestLevel
+    !> Whether or not it is the coarsest level:
+    !> NOTE: On the coarsest level, mmData, interpDegrees, and xyzMap need
+    !>  not be allocated!
+    LOGICAL(SBK) :: isCoarsestLevel
     !> Number of cells/points on this level locally:
     INTEGER(SIK) :: nPointsLocal
     !> Local starting index of mesh points:
@@ -115,8 +119,7 @@ MODULE MultigridMesh
     INTEGER(SIK) :: nLevels
     !> Data for each multigrid level.  NOTE: Typically 1:nLevels-1.
     !>  It is generally not necessary to define a MultigridMesh for the
-    !>  coarsest level.  0 = coarsest level, nLevels-1 = finest level.  The
-    !>  0-based index is consistent with PETSc indexing of multigrid levels.
+    !>  coarsest level.  1 = coarsest level, nLevels = finest level.
     TYPE(MultigridMeshType),ALLOCATABLE :: meshes(:)
     !> Whether or not the mesh structure has been initialized:
     LOGICAL(SBK) :: isInit
@@ -147,10 +150,21 @@ MODULE MultigridMesh
       CLASS(MultigridMeshStructureType),INTENT(INOUT) :: myMeshes
       INTEGER(SIK),INTENT(IN) :: nLevels
 
+      INTEGER(SIK) :: iLevel
+
+      IF(nLevels < 1_SIK) &
+        CALL eLinearSolverType%raiseError(modName//"::"//myName//" - "// &
+          "nLevels must be a positive integer!")
+
       myMeshes%nLevels=nLevels
+      ALLOCATE(myMeshes%meshes(nLevels))
+      DO iLevel=1,nLevels
+        myMeshes%meshes(iLevel)%iLevel=iLevel
+      ENDDO
+      myMeshes%meshes(nLevels)%isFinestLevel=.TRUE.
+      myMeshes%meshes(1)%isCoarsestLevel=.TRUE.
+
       myMeshes%isInit=.TRUE.
-      ALLOCATE(myMeshes%meshes(nLevels-1))
-      myMeshes%meshes(nLevels-1)%isFinestLevel=.TRUE.
 
     ENDSUBROUTINE init_MultigridMeshStructure
 !

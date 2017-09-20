@@ -252,8 +252,8 @@ CONTAINS
       CALL init_MultigridLS(thisLS)
 
       CALL myMMeshes%init(thisLS%nLevels)
-      DO iLevel=thisLS%nLevels-1,1,-1
-        nx=thisLS%level_info(2,iLevel+1)
+      DO iLevel=thisLS%nLevels,1,-1
+        nx=thisLS%level_info(2,iLevel)
         myMMeshes%meshes(iLevel)%istt=1
         myMMeshes%meshes(iLevel)%istp=nx
         myMMeshes%meshes(iLevel)%nPointsLocal=nx
