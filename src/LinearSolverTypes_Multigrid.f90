@@ -411,6 +411,8 @@ MODULE LinearSolverTypes_Multigrid
       REAL(SRK),ALLOCATABLE :: wts(:,:)
 
 #ifdef FUTILITY_HAVE_PETSC
+      PetscErrorCode :: iperr
+
       IF(solver%TPLType /= PETSC) &
         CALL eLinearSolverType%raiseError('Incorrect call to '// &
           modName//'::'//myName//' - This subroutine does not have a '// &
@@ -508,6 +510,10 @@ MODULE LinearSolverTypes_Multigrid
       CALL KSPGetPC(ksp_temp,pc_temp,iperr)
       CALL PCSetType(pc_temp,PCBJACOBI,iperr)
       CALL KSPSetInitialGuessNonzero(ksp_temp,PETSC_TRUE,iperr)
+
+      !Not sure if the tolerance actually matters on the outer level.  This
+      !  call is mostly to set a limit on the number of MG V-cycles performed.
+      CALL KSPSetTolerances(solver%ksp,1.E-8_SRK,1.E-8_SRK,1.E3_SRK,10_SIK,iperr)
 
       solver%isMultigridSetup=.TRUE.
 #else
