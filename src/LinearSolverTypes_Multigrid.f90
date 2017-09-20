@@ -407,8 +407,8 @@ MODULE LinearSolverTypes_Multigrid
       TYPE(MultigridMeshStructureType),INTENT(IN) :: myMMeshes
       LOGICAL(SBK),OPTIONAL :: preallocated
 
-      INTEGER(SIK) :: iLevel,ip,ichild,col
-      REAL(SRK) :: wt
+      INTEGER(SIK) :: iLevel,ip,i,row,col,ieqn,indices(48),nindices
+      REAL(SRK),ALLOCATABLE :: wts(:,:)
 
 #ifdef FUTILITY_HAVE_PETSC
       IF(solver%TPLType /= PETSC) &
@@ -428,14 +428,20 @@ MODULE LinearSolverTypes_Multigrid
           !Note that if there is interpolation across processors, this does not
           !  work
         ENDIF
+        ALLOCATE(wts(myMMeshes%meshes(iLevel)%num_eqns,48))
         !Create the interpolation operator:
         DO ip=myMMeshes%meshes(iLevel)%istt,myMMeshes%meshes(iLevel)%istp
-          DO ichild=1,MAX(myMMeshes%meshes(iLevel)%interpDegrees(ip)*2,1)
-            col=myMMeshes%meshes(iLevel)%mmData(ip)%childIndices(ichild)
-            wt=myMMeshes%meshes(iLevel)%mmData(ip)%childWeights(ichild)
-            CALL solver%interpMats_PETSc(iLevel-1)%set(ip,col,wt)
+          CALL getWtsAndIndices(myMMeshes%meshes(iLevel), &
+            myMMeshes%meshes(iLevel)%num_eqns,ip,indices,wts,nindices)
+          DO ieqn=1,myMMeshes%meshes(iLevel)%num_eqns
+            row=(ip-1)*myMMeshes%meshes(iLevel)%num_eqns+ieqn
+            DO i=1,nindices
+              col=(indices(i)-1)*myMMeshes%meshes(iLevel)%num_eqns+ieqn
+              CALL solver%interpMats_PETSc(iLevel-1)%set(row,col,wts(ieqn,i))
+            ENDDO
           ENDDO
         ENDDO
+        DEALLOCATE(wts)
       ENDDO !iLevel
 #else
       CALL eLinearSolverType%raiseError('Incorrect call to '// &
@@ -631,5 +637,94 @@ MODULE LinearSolverTypes_Multigrid
       CALL solver%LinearSolverType_Iterative%clear()
 
     ENDSUBROUTINE clear_LinearSolverType_Multigrid
+!
+!-------------------------------------------------------------------------------
+!> @brief Extracts the weights and neighbor indices for a given point on a mesh
+!> @param myMesh MultigridMeshType object corresponding to the current level
+!> @param ip Current point
+!> @param indices Indices to be returned
+!> @param wts Weights to be returned
+!>
+    SUBROUTINE getWtsAndIndices(myMesh,num_eqns,ip,indices,wts,nindices)
+      CLASS(MultigridMeshType),INTENT(IN) :: myMesh
+      INTEGER(SIK),INTENT(IN) :: num_eqns,ip
+      INTEGER(SIK),INTENT(INOUT) :: indices(:)
+      REAL(SRK),INTENT(INOUT) :: wts(:,:)
+      INTEGER(SIK),INTENT(OUT) :: nindices
+
+      INTEGER(SIK) :: ichild,ichild2,ichild3,ipn,ipn2,ipn3,i,ind
+      REAL(SRK) :: wt2(num_eqns),wt3(num_eqns),tmpwts(num_eqns,48)
+      INTEGER(SIK) :: tmpindices(48),counter
+
+      counter=1
+      SELECTCASE(myMesh%interpDegrees(ip))
+        CASE(3)
+          DO ichild=1,6
+            ipn=myMesh%mmData(ip)%childIndices(ichild)
+            IF(ipn < 1) CYCLE
+            wt3=myMesh%mmData(ip)%childWeights(:,ichild)
+            DO ichild2=1,4
+              ipn2=myMesh%mmData(ipn)%childIndices(ichild2)
+              IF(ipn2 < 1) CYCLE
+              wt2=wt3*myMesh%mmData(ipn)%childWeights(:,ichild2)
+              DO ichild3=1,2
+                ipn3=myMesh%mmData(ipn2)%childIndices(ichild3)
+                IF(ipn3 < 1) CYCLE
+                tmpwts(:,counter)=wt2*myMesh%mmData(ipn2)%childWeights(:,ichild3)
+                tmpindices(counter)=myMesh%mmData(ipn3)%childIndices(1)
+                counter=counter+1
+              ENDDO
+            ENDDO
+          ENDDO
+          counter=counter-1
+        CASE(2)
+          DO ichild=1,4
+            ipn=myMesh%mmData(ip)%childIndices(ichild)
+            IF(ipn < 1) CYCLE
+            wt2=myMesh%mmData(ip)%childWeights(:,ichild)
+            DO ichild2=1,2
+              ipn2=myMesh%mmData(ipn)%childIndices(ichild2)
+              IF(ipn2 < 1) CYCLE
+              tmpwts(:,counter)=wt2*myMesh%mmData(ipn)%childWeights(:,ichild2)
+              tmpindices(counter)=myMesh%mmData(ipn2)%childIndices(1)
+              counter=counter+1
+            ENDDO
+          ENDDO
+          counter=counter-1
+        CASE(1)
+          DO ichild=1,2
+            ipn=myMesh%mmData(ip)%childIndices(ichild)
+            IF(ipn < 1) CYCLE
+            tmpwts(:,counter)=myMesh%mmData(ip)%childWeights(:,ichild)
+            tmpindices(counter)=myMesh%mmData(ipn)%childIndices(1)
+            counter=counter+1
+          ENDDO
+          counter=counter-1
+        CASE DEFAULT
+          nindices=1
+          indices(1)=myMesh%mmData(ip)%childIndices(1)
+          wts(:,1)=1.0_SRK
+          RETURN
+      ENDSELECT
+
+      indices=0_SIK
+      nindices=1
+      !i=1:
+      indices(1)=tmpindices(1)
+      wts(:,1)=tmpwts(:,1)
+      !i>1:
+      DO i=2,counter
+        IF(tmpindices(i) < 1) CYCLE
+        ind=MINLOC(indices(1:nindices),DIM=1,MASK=(indices(1:nindices)==tmpindices(i)))
+        IF(ind == 0) THEN
+          nindices=nindices+1
+          indices(nindices)=tmpindices(i)
+          wts(:,nindices)=tmpwts(:,i)
+        ELSE
+          wts(:,ind)=wts(:,ind)+tmpwts(:,i)
+        ENDIF
+      ENDDO
+
+    ENDSUBROUTINE
 
 ENDMODULE LinearSolverTypes_Multigrid

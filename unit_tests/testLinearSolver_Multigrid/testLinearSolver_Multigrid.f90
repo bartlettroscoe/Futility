@@ -263,13 +263,13 @@ CONTAINS
           IF(MOD(ix,2) == 1) THEN
             myMMeshes%meshes(iLevel)%interpDegrees(ix)=0
             ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1))
-            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childWeights(1))
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childWeights(1,1))
             myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1)=(ix+1)/2
             myMMeshes%meshes(iLevel)%mmData(ix)%childWeights=1.0_SRK
           ELSE
             myMMeshes%meshes(iLevel)%interpDegrees(ix)=1
             ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(2))
-            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childWeights(2))
+            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childWeights(1,2))
             myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1)=ix+1
             myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(2)=ix-1
             myMMeshes%meshes(iLevel)%mmData(ix)%childWeights=0.5_SRK

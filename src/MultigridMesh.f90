@@ -70,8 +70,9 @@ MODULE MultigridMesh
     !> For MPACT, ordering should be WSENBT on finest mesh and WESNBT on
     !>  all other meshes, but, in general, ordering is arbitrary
     INTEGER(SIK),ALLOCATABLE :: childIndices(:)
-    !> Weights of each child point, same range as childIndices(:)
-    REAL(SRK),ALLOCATABLE :: childWeights(:)
+    !> Weights of each child point, 2nd index has same range as childIndices,
+    !>  1st index has range 1:num_eqns
+    REAL(SRK),ALLOCATABLE :: childWeights(:,:)
 
     CONTAINS
       !> @copybrief MultigridMesh::clear_MultigridMeshElement
@@ -82,6 +83,11 @@ MODULE MultigridMesh
   TYPE :: MultigridMeshType
     !> Which level the mesh corresponds to (1 = coarsest)
     INTEGER(SIK) :: iLevel
+    !> Number of equations (# of components per spatial point)
+    !>   Right now, there is no support for simultaneous collapse in both space
+    !>   and the number of eqns in this module.  Collapse of eqns must be done
+    !>   separately.
+    INTEGER(SIK) :: num_eqns
     !> Whether or not it is the finest level:
     LOGICAL(SBK) :: isFinestLevel
     !> Whether or not it is the coarsest level:
@@ -158,10 +164,11 @@ MODULE MultigridMesh
 !> @param myMeshes the mesh structure
 !> @param nLevels number of levels
 !>
-    SUBROUTINE init_MultigridMeshStructure(myMeshes,nLevels)
+    SUBROUTINE init_MultigridMeshStructure(myMeshes,nLevels,num_eqns)
       CHARACTER(LEN=*),PARAMETER :: myName='init_MultigridMeshStructure'
       CLASS(MultigridMeshStructureType),INTENT(INOUT) :: myMeshes
       INTEGER(SIK),INTENT(IN) :: nLevels
+      INTEGER(SIK),INTENT(IN),OPTIONAL :: num_eqns
 
       INTEGER(SIK) :: iLevel
 
@@ -173,6 +180,8 @@ MODULE MultigridMesh
       ALLOCATE(myMeshes%meshes(nLevels))
       DO iLevel=1,nLevels
         myMeshes%meshes(iLevel)%iLevel=iLevel
+        myMeshes%meshes(iLevel)%num_eqns=1_SIK
+        IF(PRESENT(num_eqns)) myMeshes%meshes(iLevel)%num_eqns=num_eqns
       ENDDO
       myMeshes%meshes(nLevels)%isFinestLevel=.TRUE.
       myMeshes%meshes(1)%isCoarsestLevel=.TRUE.
