@@ -260,20 +260,6 @@ CONTAINS
         ALLOCATE(myMMeshes%meshes(iLevel)%mmData(1:nx))
         ALLOCATE(myMMeshes%meshes(iLevel)%interpDegrees(1:nx))
         DO ix=1,nx
-          IF(ix > 1 .AND. ix < nx) THEN
-            myMMeshes%meshes(iLevel)%mmData(ix)%nNeighLocal=2
-            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(2))
-            myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1)=ix-1
-            myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(2)=ix+1
-          ELSE
-            myMMeshes%meshes(iLevel)%mmData(ix)%nNeighLocal=1
-            ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1))
-            IF(ix == 1) THEN
-              myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1)=2
-            ELSE
-              myMMeshes%meshes(iLevel)%mmData(ix)%neighLocal(1)=nx-1
-            ENDIF
-          ENDIF
           IF(MOD(ix,2) == 1) THEN
             myMMeshes%meshes(iLevel)%interpDegrees(ix)=0
             ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1))
@@ -284,8 +270,8 @@ CONTAINS
             myMMeshes%meshes(iLevel)%interpDegrees(ix)=1
             ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(2))
             ALLOCATE(myMMeshes%meshes(iLevel)%mmData(ix)%childWeights(2))
-            myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1)=ix/2
-            myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(2)=ix/2+1
+            myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(1)=ix+1
+            myMMeshes%meshes(iLevel)%mmData(ix)%childIndices(2)=ix-1
             myMMeshes%meshes(iLevel)%mmData(ix)%childWeights=0.5_SRK
           ENDIF
         ENDDO

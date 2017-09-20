@@ -56,13 +56,19 @@ MODULE MultigridMesh
   PUBLIC :: MultigridMeshStructureType
 
   TYPE :: MultigridMeshElementType
-    !> Number of local neighbors
-    INTEGER(SIK) :: nNeighLocal
-    !> Global indices of its local neighbors on the current multigrid mesh.
-    !>  Size nNeigh, should be ordered WSNEBT where possible
-    INTEGER(SIK),ALLOCATABLE :: neighLocal(:)
-    !> Indices of the points on the child mesh, see description of interpDegree
-    !>  in MultigridMeshType for information about the size of the array
+    !> Index of the point on the finest grid that this point eventually injects
+    !>  into.  May have another use/definition in cases where the interpolation
+    !>  operator has no injections.  This is not needed for fillInterpMatrices
+    !>  in LinearSolverTypes_Multigrid, it is only here for the user's
+    !>  and initializing this variable is optional.
+    INTEGER(SIK) :: finestGridIndex
+    !> For degree 0 points, childIndices is a size-1 array containing the
+    !>  child mesh index of the point that it injects into.
+    !> For degree >0 points, childIndices is a size >1 array containing the
+    !>  current mesh indices of the points from which the value on this point
+    !>  is interpolated.
+    !> For MPACT, ordering should be WSENBT on finest mesh and WESNBT on
+    !>  all other meshes, but, in general, ordering is arbitrary
     INTEGER(SIK),ALLOCATABLE :: childIndices(:)
     !> Weights of each child point, same range as childIndices(:)
     REAL(SRK),ALLOCATABLE :: childWeights(:)
@@ -88,6 +94,10 @@ MODULE MultigridMesh
     INTEGER(SIK) :: istt
     !> Local end index of mesh points:
     INTEGER(SIK) :: istp
+    !> Global x,y,z location of each element in units of the finest mesh
+    !> This means that adjacent cells in coarser meshes do not have
+    !>   adjacent x/y/z values.  Range is (istt:istp,3)
+    INTEGER(SIK),ALLOCATABLE :: xyzMap(:,:)
     !> Data for the individual coarse mesh elements. indices are istt:istp
     TYPE(MultigridMeshElementType),ALLOCATABLE :: mmData(:)
     !> How many "degrees" each point is from a coarse point.
@@ -132,6 +142,9 @@ MODULE MultigridMesh
       !> @copydetails MultigridMesh::init_MultigridMeshStructure
       PROCEDURE,PASS :: init => init_MultigridMeshStructure
   ENDTYPE MultigridMeshStructureType
+
+  !> Exception Handler for use in MatrixTypes
+  TYPE(ExceptionHandlerType),SAVE :: eMultigridMesh
 
   !> Name of module
   CHARACTER(LEN=*),PARAMETER :: modName='MULTIGRIDMESH'
@@ -202,6 +215,8 @@ MODULE MultigridMesh
 
       IF(ALLOCATED(myMesh%interpDegrees)) DEALLOCATE(myMesh%interpDegrees)
 
+      IF(ALLOCATED(myMesh%xyzMap)) DEALLOCATE(myMesh%xyzMap)
+
       IF(ALLOCATED(myMesh%mmData)) THEN
         DO i=myMesh%istt,myMesh%istp
           CALL myMesh%mmData(i)%clear()
@@ -221,8 +236,6 @@ MODULE MultigridMesh
       CHARACTER(LEN=*),PARAMETER :: myName='clear_MultigridMesh'
       CLASS(MultigridMeshElementType),INTENT(INOUT) :: myMeshElement
 
-      IF(ALLOCATED(myMeshElement%neighLocal)) &
-              DEALLOCATE(myMeshElement%neighLocal)
       IF(ALLOCATED(myMeshElement%childIndices)) &
               DEALLOCATE(myMeshElement%childIndices)
       IF(ALLOCATED(myMeshElement%childWeights)) &
