@@ -102,7 +102,7 @@ MODULE MultigridMesh
     INTEGER(SIK) :: istp
     !> Global x,y,z location of each element in units of the finest mesh
     !> This means that adjacent cells in coarser meshes do not have
-    !>   adjacent x/y/z values.  Range is (istt:istp,3)
+    !>   adjacent x/y/z values.  Range is (3,istt:istp)
     INTEGER(SIK),ALLOCATABLE :: xyzMap(:,:)
     !> Data for the individual coarse mesh elements. indices are istt:istp
     TYPE(MultigridMeshElementType),ALLOCATABLE :: mmData(:)
