@@ -55,6 +55,7 @@ SET(UNIT_TEST_NAMES
     testLinearSolver
     testLinearSolver_Multigrid
     testMultigridMesh
+    testSmoother
     testEigenvalueSolver
     testODESolver
     testAndersonAcceleration
