@@ -119,7 +119,10 @@ PROGRAM testSmoother
       tmpbool=smoother%num_colors == num_colors .AND. &
                 smoother%istt == istt .AND. &
                 smoother%istp == istp .AND. &
-                smoother%blk_size == blk_size
+                smoother%blk_size == blk_size .AND. &
+                smoother%TPLType == PETSc .AND. &
+                smoother%smootherMethod == CBJ .AND. &
+                smoother%blockMethod == LU
       ASSERT(tmpbool,'smoother parameters are the correct value')
 
 #ifdef FUTILITY_HAVE_PETSC

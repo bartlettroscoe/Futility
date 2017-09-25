@@ -60,10 +60,12 @@ MODULE SmootherTypes
   PUBLIC :: SmootherType_PETSc_CBJ
   PUBLIC :: IndexList
 
+  !> Enumeration for smoother options
+  INTEGER(SIK),PARAMETER,PUBLIC :: CBJ=0
+  !> Enumeration for block solver options
+  INTEGER(SIK),PARAMETER,PUBLIC :: LU=0,SOR=1,ILU=2
   !> set enumeration scheme for TPLs
   INTEGER(SIK),PARAMETER,PUBLIC :: PETSC=0,NATIVE=4
-  !> Enumeration for smoother options
-  INTEGER(SIK),PARAMETER,PUBLIC :: SOR=0
 
   !> @brief the base linear smoother type
   TYPE,ABSTRACT :: SmootherType_Base
@@ -71,6 +73,8 @@ MODULE SmootherTypes
     LOGICAL(SBK) :: isInit=.FALSE.
     !> Integer flag for the solution methodology desired
     INTEGER(SIK) :: smootherMethod=-1
+    !> Integer flag for the solution methodology desired
+    INTEGER(SIK) :: blockMethod=-1
     !> Integer flag for the solution methodology desired
     INTEGER(SIK) :: TPLType=-1
     !> Pointer to an MPI parallel environment
@@ -81,6 +85,12 @@ MODULE SmootherTypes
     REAL(SRK) :: localResidual=0.0_SRK
     !> Current global residual norm
     REAL(SRK) :: globalResidual=0.0_SRK
+    !> Starting local index:
+    INTEGER(SIK) :: istt=-1_SIK
+    !> End local index:
+    INTEGER(SIK) :: istp=-1_SIK
+    !> Block size (number of unknowns per point):
+    INTEGER(SIK) :: blk_size=-1_SIK
 
   !
   !List of Type Bound Procedures
@@ -124,14 +134,8 @@ MODULE SmootherTypes
     LOGICAL(SBK),ALLOCATABLE :: hasColorDefined(:)
     !> Whether or not all the color index lists have been set
     LOGICAL(SBK) :: hasAllColorsDefined=.FALSE.
-    !> Starting local index:
-    INTEGER(SIK) :: istt=-1_SIK
-    !> End local index:
-    INTEGER(SIK) :: istp=-1_SIK
     !> Color ID of each point (istt:istp)
     INTEGER(SIK),ALLOCATABLE :: color_ids(:)
-    !> Block size (number of unknowns per point):
-    INTEGER(SIK) :: blk_size=-1_SIK
 
   !
   !List of Type Bound Procedures
@@ -242,6 +246,14 @@ MODULE SmootherTypes
         CALL smoother%MPIparallelEnv%init(MPI_COMM_WORLD)
       ENDIF
 
+      smoother%smootherMethod=CBJ
+      smoother%TPLType=PETSc
+      smoother%blockMethod=LU
+      IF(params%has('SmootherType->blockMethod')) &
+        CALL params%get('SmootherType->blockMethod', &
+                          smoother%blockMethod)
+      smoother%hasX0=.FALSE.
+
       smoother%ksp=ksp
 #ifdef FUTILITY_HAVE_PETSC
       CALL KSPSetType(smoother%ksp,KSPRICHARDSON,iperr)
@@ -341,7 +353,7 @@ MODULE SmootherTypes
     ENDSUBROUTINE defineAllColors_SmootherType_PETSc_CBJ
 !
 !-------------------------------------------------------------------------------
-!> @brief Clears the SmootehrType for an CBJ PETSc smoother
+!> @brief Clears the SmootherType for an CBJ PETSc smoother
 !> @param smoother The smoother object to act on
 !>
     SUBROUTINE clear_SmootherType_PETSc_CBJ(smoother)
