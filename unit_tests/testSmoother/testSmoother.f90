@@ -21,8 +21,9 @@ PROGRAM testSmoother
 
   TYPE(ExceptionHandlerType),TARGET :: e
   TYPE(MPI_EnvType) :: mpiTestEnv
-  TYPE(ParamType) :: params
+  TYPE(ParamType) :: params,params_2proc
   INTEGER(SIK) :: istt,istp,blk_size,num_colors
+  INTEGER(SIK) :: mpierr
 
 #ifdef FUTILITY_HAVE_PETSC
 #include <finclude/petsc.h>
@@ -47,10 +48,9 @@ PROGRAM testSmoother
   CALL eParams%addSurrogate(e)
   CALL eSmootherType%addSurrogate(e)
 
-
   istt=1
   istp=65
-  blk_size=1_SIK
+  blk_size=2_SIK
   num_colors=2_SIK
   CALL params%clear()
   CALL params%add('SmootherType->istt',istt)
@@ -58,6 +58,12 @@ PROGRAM testSmoother
   CALL params%add('SmootherType->num_colors',num_colors)
   CALL params%add('SmootherType->blk_size',blk_size)
   CALL params%add('SmootherType->MPI_Comm_ID',mpiTestEnv%comm)
+  CALL params_2proc%clear()
+  params_2proc=params
+  IF(.NOT. mpiTestEnv%master) THEN
+    CALL params_2proc%set('SmootherType->istt',istt+istp)
+    CALL params_2proc%set('SmootherType->istp',istp+istp)
+  ENDIF
 #ifdef FUTILITY_HAVE_PETSC
   CALL KSPCreate(mpiTestEnv%comm,ksp,iperr)
 #endif
@@ -150,15 +156,6 @@ PROGRAM testSmoother
     ENDSUBROUTINE testInit_PETSc_CBJ
 !
 !-------------------------------------------------------------------------------
-    SUBROUTINE testSmooth_PETSc_CBJ
-      TYPE(SmootherType_PETSc_CBJ) :: smoother
-
-      CALL smoother%init(ksp,params)
-
-      CALL smoother%clear()
-    ENDSUBROUTINE testSmooth_PETSc_CBJ
-!
-!-------------------------------------------------------------------------------
     SUBROUTINE testDefineColor_PETSc_CBJ
       TYPE(SmootherType_PETSc_CBJ) :: smoother
       INTEGER(SIK),PARAMETER :: num_indices=25_SIK
@@ -216,5 +213,101 @@ PROGRAM testSmoother
       CALL smoother%clear()
 
     ENDSUBROUTINE testDefineAllColors_PETSc_CBJ
+!
+!-------------------------------------------------------------------------------
+    SUBROUTINE testSmooth_PETSc_CBJ
+#ifdef FUTILITY_HAVE_PETSC
+#ifdef HAVE_MPI
+      !Test smoother on 2-proc,2-group problem
+      TYPE(SmootherType_PETSc_CBJ) :: smoother
+
+      INTEGER(SIK),PARAMETER :: nlocal=65_SIK
+      INTEGER(SIK),PARAMETER :: num_eqns=2_SIK
+      INTEGER(SIK) :: n
+      REAL(SRK) :: b(nlocal*num_eqns)
+      INTEGER(SIK) :: nstart,nend
+      INTEGER(SIK) :: i,ieqn
+      INTEGER(SIK) :: row,col
+      INTEGER(SIK) :: dnnz(nlocal*num_eqns),onnz(nlocal*num_eqns)
+
+      Mat :: A_petsc
+      Vec :: b_petsc,x_petsc
+      PetscErrorCode :: iperr
+
+      n=nlocal*mpiTestEnv%nproc
+
+      dnnz=num_eqns+2
+      dnnz(1:num_eqns)=num_eqns+1
+      dnnz((nlocal-1)*num_eqns+1:nlocal*num_eqns)=num_eqns+1
+      onnz=0_SIK
+      nstart=mpiTestEnv%rank*nlocal+1
+      nend=(mpiTestEnv%rank+1)*nlocal
+      IF(mpiTestEnv%rank < mpiTestEnv%nproc-1) THEN
+        onnz((nend-1)*num_eqns+1:nend*num_eqns)=1_SIK
+      ENDIF
+      IF(mpiTestEnv%rank > 0) THEN
+        onnz(1:num_eqns)=1_SIK
+      ENDIF
+
+      CALL MatCreate(MPI_COMM_WORLD,A_petsc,iperr)
+      CALL VecCreate(MPI_COMM_WORLD,b_petsc,iperr)
+      CALL VecCreate(MPI_COMM_WORLD,x_petsc,iperr)
+      CALL MatSetSizes(A_petsc,nlocal*num_eqns,nlocal*num_eqns, &
+                        n*num_eqns,n*num_eqns,iperr)
+      CALL VecSetSizes(b_petsc,nlocal*num_eqns,n*num_eqns,iperr)
+      CALL VecSetSizes(x_petsc,nlocal*num_eqns,n*num_eqns,iperr)
+      CALL VecSetType(b_petsc,VECMPI,iperr)
+      CALL MatSetType(A_petsc,MATMPIAIJ,ierr)
+      CALL VecSetType(x_petsc,VECMPI,iperr)
+      CALL MatMPIAIJSetPreallocation(A_petsc,0,dnnz,0,onnz,iperr)
+      CALL VecSet(b_petsc,0.0_SRK,iperr)
+      CALL VecSet(x_petsc,0.0_SRK,iperr)
+      CALL VecAssemblyBegin(b_petsc,iperr)
+
+
+      !2G homogeneous diffusion problem:
+      DO i=nstart,nend
+        DO ieqn=1,num_eqns
+          row=(i-1)*num_eqns+ieqn
+          IF(i > nstart) THEN
+            col=(i-2)*num_eqns+ieqn
+            CALL MatSetValue(A_petsc,row-1,col-1,-1.0_SRK,INSERT_VALUES,iperr)
+          ENDIF
+          IF(i < nend) THEN
+            col=i*num_eqns+ieqn
+            CALL MatSetValue(A_petsc,row-1,col-1,-1.0_SRK,INSERT_VALUES,iperr)
+          ENDIF
+        ENDDO
+        row=(i-1)*num_eqns+1
+        CALL MatSetValue(A_petsc,row-1,row-1,2.1_SRK,INSERT_VALUES,iperr)
+        CALL MatSetValue(A_petsc,row,row,2.2_SRK,INSERT_VALUES,iperr)
+        !Upscatter:
+        CALL MatSetValue(A_petsc,row-1,row,-0.01_SRK,INSERT_VALUES,iperr)
+        !Downscatter:
+        CALL MatSetValue(A_petsc,row,row-1,-0.5_SRK,INSERT_VALUES,iperr)
+      ENDDO
+
+      CALL VecAssemblyBegin(x_petsc,iperr)
+      CALL MatAssemblyBegin(A_petsc,MAT_FINAL_ASSEMBLY,iperr)
+
+      CALL VecAssemblyEnd(b_petsc,iperr)
+      CALL VecAssemblyEnd(x_petsc,iperr)
+      CALL MatAssemblyEnd(A_petsc,MAT_FINAL_ASSEMBLY,iperr)
+
+      CALL KSPSetOperators(ksp,A_petsc,A_petsc,iperr)
+
+      CALL smoother%init(ksp,params_2proc)
+
+      !CALL PCShellSetSetUp(smoother%pc,smoother%PCSetup_CBJ,iperr)
+
+      CALL smoother%clear()
+
+      CALL MatDestroy(A_petsc,iperr)
+      CALL VecDestroy(b_petsc,iperr)
+      CALL VecDestroy(x_petsc,iperr)
+#endif
+#endif
+
+    ENDSUBROUTINE testSmooth_PETSc_CBJ
 
 ENDPROGRAM testSmoother

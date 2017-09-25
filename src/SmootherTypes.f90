@@ -60,6 +60,8 @@ MODULE SmootherTypes
   PUBLIC :: SmootherType_PETSc_CBJ
   PUBLIC :: IndexList
 
+  !EXTERNAL :: PCSetUp_CBJ
+
   !> Enumeration for smoother options
   INTEGER(SIK),PARAMETER,PUBLIC :: CBJ=0
   !> Enumeration for block solver options
@@ -97,8 +99,6 @@ MODULE SmootherTypes
     CONTAINS
       !> Deferred routine for clearing the linear smoother
       PROCEDURE(smoother_sub_absintfc),DEFERRED,PASS :: clear
-      !> Deferred routine for applying a smoother step to the linear system
-      PROCEDURE(smoother_sub_absintfc),DEFERRED,PASS :: smooth
   ENDTYPE SmootherType_Base
 
   TYPE,ABSTRACT,EXTENDS(SmootherType_Base) :: SmootherType_PETSc
@@ -146,9 +146,6 @@ MODULE SmootherTypes
       !> @copybrief SmootherTypes::clear_SmootherType_PETSc_CBJ
       !> @copydetails SmootherTypes::clear_SmootherType_PETSc_CBJ
       PROCEDURE,PASS :: clear => clear_SmootherType_PETSc_CBJ
-      !> @copybrief SmootherTypes::smooth_SmootherType_PETSc_CBJ
-      !> @copydetails SmootherTypes::smooth_SmootherType_PETSc_CBJ
-      PROCEDURE,PASS :: smooth => smooth_SmootherType_PETSc_CBJ
       !> @copybrief SmootherTypes::defineColor_SmootherType_PETSc_CBJ
       !> @copydetails SmootherTypes::defineColor_SmootherType_PETSc_CBJ
       PROCEDURE,PASS :: defineColor => defineColor_SmootherType_PETSc_CBJ
@@ -160,27 +157,12 @@ MODULE SmootherTypes
   !> Exception Handler for use in SmootherTypes
   TYPE(ExceptionHandlerType),SAVE :: eSmootherType
 
-  !> Explicitly defines the interface for the clear, and solve routines
+  !> Explicitly defines the interface for the clear routines
   ABSTRACT INTERFACE
     SUBROUTINE smoother_sub_absintfc(smoother)
       IMPORT :: SmootherType_Base
       CLASS(SmootherType_Base),INTENT(INOUT) :: smoother
     ENDSUBROUTINE smoother_sub_absintfc
-  ENDINTERFACE
-
-  !> Explicitly defines the interface for the init routine for PETSc smoothers
-  ABSTRACT INTERFACE
-    SUBROUTINE smoother_petsc_sub_absintfc(smoother,ksp,params)
-      IMPORT :: SmootherType_PETSc
-      IMPORT :: ParamType
-      CLASS(SmootherType_PETSc),INTENT(INOUT) :: smoother
-      TYPE(ParamType),INTENT(IN) :: params
-#ifdef FUTILITY_HAVE_PETSC
-      KSP,INTENT(INOUT) :: ksp
-#else
-      INTEGER(SIK),INTENT(INOUT) :: ksp
-#endif
-    ENDSUBROUTINE smoother_petsc_sub_absintfc
   ENDINTERFACE
 
   !> Name of module
@@ -259,19 +241,11 @@ MODULE SmootherTypes
       CALL KSPSetType(smoother%ksp,KSPRICHARDSON,iperr)
       CALL KSPGetPC(smoother%ksp,smoother%pc,iperr)
       CALL PCSetType(smoother%pc,PCSHELL,iperr)
+      CALL PCShellSetName(smoother%pc,"Colored block Jacobi",iperr)
 #endif
       smoother%isInit=.TRUE.
 
     ENDSUBROUTINE init_SmootherType_PETSc_CBJ
-!
-!-------------------------------------------------------------------------------
-!> @brief Performs a sweep over the red cells, and then the black cells
-!> @param smoother The smoother object to act on
-!>
-    SUBROUTINE smooth_SmootherType_PETSc_CBJ(smoother)
-      CHARACTER(LEN=*),PARAMETER :: myName='smooth_SmootherType_PETSc_CBJ'
-      CLASS(SmootherType_PETSc_CBJ),INTENT(INOUT) :: smoother
-    ENDSUBROUTINE smooth_SmootherType_PETSc_CBJ
 !
 !-------------------------------------------------------------------------------
 !> @brief Fill out an index list for a particular color
@@ -378,4 +352,32 @@ MODULE SmootherTypes
 
     ENDSUBROUTINE clear_SmootherType_PETSc_CBJ
 !
+!-------------------------------------------------------------------------------
+!> @brief PETSc Setup PC function for PCSHELL for the colored block Jacobi scheme
+!>
+!> @param smoother Smoother object which owns the SHELL
+!> @param pc PETSc PC context
+!> @param iperr PetscErrorCode
+!>
+#ifdef FUTILITY_HAVE_PETSC
+    SUBROUTINE PCSetup_CBJ(pc,iperr)
+      CHARACTER(LEN=*),PARAMETER :: myName='PCSetup_CBJ'
+      PC,INTENT(INOUT) :: pc
+      PetscErrorCode,INTENT(INOUT) :: iperr
+
+      !ZZZZ no matter what, i need one context variable to tell petsc which
+      !  smoother's info to look up
+
+      !IF(.NOT. smoother%isInit) &
+      !  CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
+      !      "Smoother must be initialized first!")
+
+      !IF(.NOT. smoother%hasAllColorsDefined) &
+      !  CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
+      !      "Smoother must have its colors defined first!")
+
+      iperr=0_SIK
+    ENDSUBROUTINE PCSetup_CBJ
+#endif
+
 ENDMODULE SmootherTypes
