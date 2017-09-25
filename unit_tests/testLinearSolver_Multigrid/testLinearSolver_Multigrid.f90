@@ -806,12 +806,12 @@ CONTAINS
         DO i=nstart,nend
           DO grp=1,2
             row=(i-1)*2+grp
-            IF(i > 1) THEN
+            IF(i > nstart) THEN
               col=(i-2)*2+grp
               CALL A%set(row,col,-1.0_SRK)
               A_temp(row,col)=-1.0_SRK
             ENDIF
-            IF(i < n) THEN
+            IF(i < nend) THEN
               col=i*2+grp
               CALL A%set(row,col,-1.0_SRK)
               A_temp(row,col)=-1.0_SRK
@@ -822,12 +822,12 @@ CONTAINS
           A_temp(row,row)=2.1_SRK
           CALL A%set(row+1,row+1,2.2_SRK)
           A_temp(row+1,row+1)=2.2_SRK
-          !Downscatter:
-          CALL A%set(row,row+1,-0.5_SRK)
-          A_temp(row,row+1)=-0.5_SRK
           !Upscatter:
-          CALL A%set(row+1,row,-0.01_SRK)
-          A_temp(row+1,row)=-0.01_SRK
+          CALL A%set(row,row+1,-0.01_SRK)
+          A_temp(row,row+1)=-0.01_SRK
+          !Downscatter:
+          CALL A%set(row+1,row,-0.5_SRK)
+          A_temp(row+1,row)=-0.5_SRK
         ENDDO
       ENDSELECT
 
