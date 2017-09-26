@@ -14,6 +14,7 @@ PROGRAM testSmoother
   USE ParameterLists
   USE ParallelEnv
   USE SmootherTypes
+  USE ISO_C_BINDING
 
   IMPLICIT NONE
 
@@ -30,6 +31,15 @@ PROGRAM testSmoother
 
   KSP :: ksp
   PetscErrorCode :: iperr
+
+  INTERFACE
+    SUBROUTINE PCShellGetContext(mypc,ctx_ptr,iperr)
+      USE ISO_C_BINDING
+      PC :: mypc
+      TYPE(C_PTR) :: ctx_ptr
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE PCShellGetContext
+  ENDINTERFACE
 
   CALL PetscInitialize(PETSC_NULL_CHARACTER,ierr)
 #else
@@ -108,9 +118,12 @@ PROGRAM testSmoother
     SUBROUTINE testSetKSP()
 #ifdef FUTILITY_HAVE_PETSC
       LOGICAL(SBK) :: tmpbool
+      CHARACTER(LEN=12) :: pcname
       PC :: pc
       KSPType :: myksptype
       PCType :: mypctype
+      TYPE(C_PTR) :: ctx_ptr
+      PetscInt,POINTER :: ctx(:)
 
       CALL KSPSetType(ksp,KSPGMRES,iperr)
       CALL KSPGetPC(ksp,pc,iperr)
@@ -118,17 +131,15 @@ PROGRAM testSmoother
 
       num_smoothers=1_SIK
       ALLOCATE(smootherList(num_smoothers))
+      ALLOCATE(ctxList(num_smoothers))
+      ctxList(1)%ctx=1
       ALLOCATE(SmootherType_PETSc_CBJ ::smootherList(1)%smoother)
       isSmootherListInit=.TRUE.
+
       CALL SmootherManager_setKSP(1,ksp)
+
       SELECTTYPE(smoother => smootherList(1)%smoother)
         TYPE IS(SmootherType_PETSc_CBJ)
-          CALL KSPGetType(ksp,myksptype,iperr)
-          CALL PCGetType(pc,mypctype,iperr)
-          tmpbool=iperr == 0_SIK .AND. &
-                  myksptype == KSPRICHARDSON .AND. &
-                  mypctype == PCSHELL
-          ASSERT(tmpbool,'ksp and pc set to the correct types in PETSc')
           CALL KSPGetType(smoother%ksp,myksptype,iperr)
           CALL PCGetType(smoother%pc,mypctype,iperr)
           tmpbool=iperr == 0_SIK .AND. &
@@ -136,6 +147,22 @@ PROGRAM testSmoother
                   mypctype == PCSHELL
           ASSERT(tmpbool,"smoother's copy of ksp and pc set to the correct types in PETSc")
       ENDSELECT
+
+      !Get context returns a pointer to a pointer for some maddening reason:
+      CALL PCShellGetContext(pc,ctx_ptr,iperr)
+      CALL C_F_POINTER(ctx_ptr,ctx,(/1/))
+      ASSERT(ctx(1) == 1_SIK,'Correct context')
+
+      CALL PCShellGetName(pc,pcname,iperr)
+      ASSERT(pcname=="CBJ PC    1",'Correct PC name')
+
+      CALL KSPGetType(ksp,myksptype,iperr)
+      CALL PCGetType(pc,mypctype,iperr)
+      tmpbool=iperr == 0_SIK .AND. &
+              myksptype == KSPRICHARDSON .AND. &
+              mypctype == PCSHELL
+      ASSERT(tmpbool,'ksp and pc set to the correct types in PETSc')
+
       CALL smootherManager_clear()
 #endif
     ENDSUBROUTINE testSetKSP
@@ -246,12 +273,9 @@ PROGRAM testSmoother
 #ifdef FUTILITY_HAVE_PETSC
 #ifdef HAVE_MPI
       !Test smoother on 2-proc,2-group problem
-      TYPE(SmootherType_PETSc_CBJ) :: smoother
-
       INTEGER(SIK),PARAMETER :: nlocal=65_SIK
       INTEGER(SIK),PARAMETER :: num_eqns=2_SIK
       INTEGER(SIK) :: n
-      REAL(SRK) :: b(nlocal*num_eqns)
       INTEGER(SIK) :: nstart,nend
       INTEGER(SIK) :: i,ieqn
       INTEGER(SIK) :: row,col
@@ -324,8 +348,6 @@ PROGRAM testSmoother
       CALL KSPSetOperators(ksp,A_petsc,A_petsc,iperr)
 
       CALL smootherManager_Init(params_2proc)
-
-      !CALL PCShellSetSetUp(smoother%pc,PCSetup_CBJ,iperr)
 
       CALL smootherManager_clear()
 

@@ -30,6 +30,7 @@ MODULE SmootherTypes
   USE ExceptionHandler
   USE ParameterLists
   USE ParallelEnv
+  USE ISO_C_BINDING
   IMPLICIT NONE
 
 #ifdef FUTILITY_HAVE_PETSC
@@ -53,10 +54,10 @@ MODULE SmootherTypes
   PUBLIC :: smootherManager_defineAllColors
 #ifdef UNIT_TEST
   PUBLIC :: smootherList
+  PUBLIC :: ctxList
   PUBLIC :: smootherType_PETSc_CBJ
+  PUBLIC :: PCSetUp_CBJ
 #endif
-
-  !EXTERNAL :: PCSetUp_CBJ
 
   !> Enumeration for smoother options
   INTEGER(SIK),PARAMETER,PUBLIC :: CBJ=0
@@ -172,6 +173,23 @@ MODULE SmootherTypes
   !> Exception Handler for use in SmootherTypes
   TYPE(ExceptionHandlerType),SAVE :: eSmootherType
 
+  INTERFACE
+    SUBROUTINE PCShellSetContext(mypc,ctx,iperr)
+      PC :: mypc
+      PetscInt :: ctx(1)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE PCShellSetContext
+  ENDINTERFACE
+
+  INTERFACE
+    SUBROUTINE PCShellGetContext(mypc,ctx_ptr,iperr)
+      USE ISO_C_BINDING
+      PC :: mypc
+      TYPE(C_PTR) :: ctx_ptr
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE PCShellGetContext
+  ENDINTERFACE
+
   !> Explicitly defines the interface for the clear routines
   ABSTRACT INTERFACE
     SUBROUTINE smootherClear_sub_absintfc(smoother)
@@ -194,6 +212,14 @@ MODULE SmootherTypes
   TYPE :: SmootherInstanceType
     CLASS(SmootherType_Base),ALLOCATABLE :: smoother
   ENDTYPE
+  !> This is needed to have a ctxList of pointers to PetscInt arrays
+  TYPE :: ctxInstanceType
+#ifdef FUTILITY_HAVE_PETSC
+    PetscInt :: ctx(1)
+#else
+    INTEGER(SIK) :: ctx(1)
+#endif
+  ENDTYPE
 
   !> Whether or not the smoother list has been initialized:
   !>   There is only one copy of the smoother list.
@@ -202,6 +228,8 @@ MODULE SmootherTypes
   INTEGER(SIK),SAVE :: num_smoothers=0_SIK
   !> List of abstract smoothers:
   TYPE(SmootherInstanceType),ALLOCATABLE,SAVE :: smootherList(:)
+  !> ctxList to keep track of which smoother is which
+  TYPE(ctxInstanceType),ALLOCATABLE,SAVE :: ctxList(:)
 
   !> Name of module
   CHARACTER(LEN=*),PARAMETER :: modName='SMOOTHERTYPES'
@@ -332,22 +360,23 @@ MODULE SmootherTypes
 !-------------------------------------------------------------------------------
 !> @brief Clears the smootherList
 !>
-    SUBROUTINE smootherManager_Clear
-      CHARACTER(LEN=*),PARAMETER :: myName='smootherManager_Clear'
+    SUBROUTINE smootherManager_clear
+      CHARACTER(LEN=*),PARAMETER :: myName='smootherManager_clear'
 
       INTEGER(SIK) :: ismoother
 
-      IF(isSmootherListInit) THEN
+      IF(ALLOCATED(smootherList)) THEN
         DO ismoother=1,num_smoothers
           CALL smootherList(ismoother)%smoother%clear()
           DEALLOCATE(smootherList(ismoother)%smoother)
         ENDDO
         DEALLOCATE(smootherList)
-        isSmootherListInit=.FALSE.
-        num_smoothers=0_SIK
       ENDIF
+      IF(ALLOCATED(ctxList)) DEALLOCATE(ctxList)
+      isSmootherListInit=.FALSE.
+      num_smoothers=0_SIK
 
-    ENDSUBROUTINE smootherManager_Clear
+    ENDSUBROUTINE smootherManager_clear
 !
 !-------------------------------------------------------------------------------
 !> @brief Sets the ksp object for a given smoother
@@ -358,6 +387,8 @@ MODULE SmootherTypes
     SUBROUTINE smootherManager_setKSP(ismoother,ksp)
       CHARACTER(LEN=*),PARAMETER :: myName='smootherManager_setKSP'
       INTEGER(SIK),INTENT(IN) :: ismoother
+      CHARACTER(LEN=11) :: pcname
+      CHARACTER(LEN=5) :: pcnumber
 #ifdef FUTILITY_HAVE_PETSC
       KSP,INTENT(IN) :: ksp
       PetscErrorCode :: iperr
@@ -381,7 +412,11 @@ MODULE SmootherTypes
           CALL KSPSetType(smoother%ksp,KSPRICHARDSON,iperr)
           CALL KSPGetPC(smoother%ksp,smoother%pc,iperr)
           CALL PCSetType(smoother%pc,PCSHELL,iperr)
-          CALL PCShellSetName(smoother%pc,"Colored block Jacobi",iperr)
+          WRITE(pcnumber,'(i5)') ismoother
+          pcname="CBJ PC"//pcnumber
+          CALL PCShellSetName(smoother%pc,pcname,iperr)
+          CALL PCShellSetSetUp(smoother%pc,PCSetup_CBJ,iperr)
+          CALL PCShellSetContext(smoother%pc,ctxList(ismoother)%ctx,iperr)
 #endif
           smoother%isKSPSetup=.TRUE.
         CLASS IS(SmootherType_PETSc)
@@ -450,7 +485,9 @@ MODULE SmootherTypes
       CALL params%get('SmootherType->MPI_Comm_ID_list',MPI_Comm_ID_list)
 
       ALLOCATE(smootherList(num_smoothers))
+      ALLOCATE(ctxList(num_smoothers))
       DO ismoother=1,num_smoothers
+        ctxList(ismoother)%ctx(1)=ismoother
         CALL params_out%clear()
         CALL params_out%add('SmootherType->istt',istt_list(ismoother))
         CALL params_out%add('SmootherType->istp',istp_list(ismoother))
@@ -589,8 +626,14 @@ MODULE SmootherTypes
       PetscErrorCode,INTENT(INOUT) :: iperr
 
       INTEGER(SIK) :: smootherID
+      TYPE(C_PTR) :: ctx_ptr
+      PetscInt,POINTER :: ctx(:)
 
-      smootherID=0_SIK
+      !Get the smoother ID:
+      CALL PCShellGetContext(pc,ctx_ptr,iperr)
+      CALL C_F_POINTER(ctx_ptr,ctx,(/1/))
+      smootherID=ctx(1)
+
       SELECTTYPE(smoother=>smootherList(smootherID)%smoother);
         TYPE IS(SmootherType_PETSc_CBJ)
           IF(.NOT. smoother%isInit) &
