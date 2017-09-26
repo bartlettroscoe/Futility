@@ -13,8 +13,6 @@ PROGRAM testSmoother
   USE ExceptionHandler
   USE ParameterLists
   USE ParallelEnv
-  USE VectorTypes
-  USE MatrixTypes
   USE SmootherTypes
 
   IMPLICIT NONE

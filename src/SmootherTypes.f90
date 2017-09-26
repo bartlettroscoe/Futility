@@ -7,18 +7,14 @@
 ! can be found in LICENSE.txt in the head directory of this repository.        !
 !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++!
 !> @brief Module provides a smoother type for smoothing a system of equations.
-!>        It is intended to support multigrid linear smoothers.
+!>        It is intended as for support multigrid methods, though the smoothers
+!>        can technically be used as standalone solvers in principle.
 !>
 !> @par Module Dependencies
 !>  - @ref IntrType "IntrType": @copybrief IntrType
-!>  - @ref BLAS "BLAS": @copybrief BLAS
-!>  - @ref Times "Times": @copybrief Times
 !>  - @ref ExceptionHandler "ExceptionHandler": @copybrief ExceptionHandler
-!>  - @ref Allocs "Allocs": @copybrief Allocs
 !>  - @ref ParameterLists "ParameterLists": @copybrief ParameterLists
 !>  - @ref ParallelEnv "ParallelEnv": @copybrief ParallelEnv
-!>  - @ref VectorTypes "VectorTypes": @copybrief VectorTypes
-!>  - @ref MatrixTypes "MatrixTypes": @copybrief MatrixTypes
 !>
 !> @par EXAMPLES
 !> @code
@@ -30,19 +26,10 @@
 !>
 !++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++!
 MODULE SmootherTypes
-  USE IntrType !ZZZZ remove unnecessary uses
-  USE BLAS
-  USE trilinos_interfaces
-  USE Times
+  USE IntrType
   USE ExceptionHandler
-  USE Allocs
   USE ParameterLists
   USE ParallelEnv
-  USE VectorTypes
-  USE MatrixTypes
-  USE PreconditionerTypes
-  USE Strings
-  USE IOUtil
   IMPLICIT NONE
 
 #ifdef FUTILITY_HAVE_PETSC
