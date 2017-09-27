@@ -32,6 +32,7 @@ MODULE SmootherTypes
   USE ParallelEnv
   USE LinearSolverTypes
   USE MatrixTypes
+  USE VectorTypes
   USE ISO_C_BINDING
   IMPLICIT NONE
 
@@ -164,6 +165,8 @@ MODULE SmootherTypes
   TYPE,EXTENDS(SmootherType_PETSc) :: SmootherType_PETSc_CBJ
     !> A type for managing the coloring scheme:
     TYPE(ColorManagerType) :: colorManager
+    !> Current color being solved:
+    INTEGER(SIK) :: icolor=-1_SIK
 
   !
   !List of Type Bound Procedures
@@ -179,6 +182,8 @@ MODULE SmootherTypes
   !> Exception Handler for use in SmootherTypes
   TYPE(ExceptionHandlerType),SAVE :: eSmootherType
 
+  !PETSC INTERFACES
+#ifdef FUTILITY_HAVE_PETSC
   INTERFACE
     SUBROUTINE PCShellSetContext(mypc,ctx,iperr)
       PC :: mypc
@@ -205,6 +210,14 @@ MODULE SmootherTypes
   ENDINTERFACE
 
   INTERFACE
+    SUBROUTINE MatSeqAIJRestoreArrayF90(A,xx_v,iperr)
+      Mat :: A
+      PetscReal, POINTER :: xx_v(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE MatSeqAIJRestoreArrayF90
+  ENDINTERFACE
+
+  INTERFACE
     SUBROUTINE MatGetRowIJF90(A,shift,symmetric,inodecompressed,n,ia,ja,done,iperr)
       Mat :: A
       PetscInt :: shift,n
@@ -224,6 +237,38 @@ MODULE SmootherTypes
     ENDSUBROUTINE MatRestoreRowIJF90
   ENDINTERFACE
 
+  INTERFACE
+    SUBROUTINE VecGetArrayReadF90(x,xx_v,iperr)
+      Vec :: x
+      PetscReal, POINTER :: xx_v(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE VecGetArrayReadF90
+  ENDINTERFACE
+
+  INTERFACE
+    SUBROUTINE VecRestoreArrayReadF90(x,xx_v,iperr)
+      Vec :: x
+      PetscReal, POINTER :: xx_v(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE VecRestoreArrayReadF90
+  ENDINTERFACE
+
+  INTERFACE
+    SUBROUTINE VecGetArrayF90(x,xx_v,iperr)
+      Vec :: x
+      PetscReal, POINTER :: xx_v(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE VecGetArrayF90
+  ENDINTERFACE
+
+  INTERFACE
+    SUBROUTINE VecRestoreArrayF90(x,xx_v,iperr)
+      Vec :: x
+      PetscReal, POINTER :: xx_v(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE VecRestoreArrayF90
+  ENDINTERFACE
+
   !> Explicitly defines the interface for the clear routines
   ABSTRACT INTERFACE
     SUBROUTINE smootherClear_sub_absintfc(smoother)
@@ -240,6 +285,7 @@ MODULE SmootherTypes
       TYPE(ParamType),INTENT(IN) :: params
     ENDSUBROUTINE smootherInit_sub_absintfc
   ENDINTERFACE
+#endif
 
   !> Abstract smoother instance:
   !>  This is needed so smootherList can have different smoother types
@@ -302,6 +348,7 @@ MODULE SmootherTypes
 
       !Extract param list info:
       CALL smoother%colorManager%init(params)
+      smoother%icolor=1_SIK
 
       CALL params%get('SmootherType->istt',smoother%istt)
       CALL params%get('SmootherType->istp',smoother%istp)
@@ -459,6 +506,10 @@ MODULE SmootherTypes
           CALL PCShellSetSetUp(smoother%pc,PCSetUp_CBJ,iperr)
           CALL PCShellSetContext(smoother%pc,ctxList(ismoother)%ctx,iperr)
           CALL PCShellSetApply(smoother%pc,PCApply_CBJ,iperr)
+          IF(smoother%colorManager%hasAllColorsDefined) THEN
+            CALL KSPSetTolerances(smoother%ksp,0.0_SRK,0.0_SRK,1E8_SRK, &
+                                  smoother%colorManager%num_colors,iperr)
+          ENDIF
 #endif
           smoother%isKSPSetup=.TRUE.
         CLASS IS(SmootherType_PETSc)
@@ -591,6 +642,14 @@ MODULE SmootherTypes
             ENDDO
             manager%hasColorDefined(icolor)=.TRUE.
             manager%hasAllColorsDefined=ALL(manager%hasColorDefined)
+
+#ifdef PETSC_HAVE_FUTILITY
+            IF(manager%hasAllColorsDefined .AND. smoother%isKSPSetup) THEN
+              CALL KSPSetTolerances(smoother%ksp,0.0_SRK,0.0_SRK,1E8_SRK, &
+                                    smoother%colorManager%num_colors,iperr)
+            ENDIF
+#endif
+
           ENDASSOCIATE
         CLASS DEFAULT
           CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
@@ -613,6 +672,9 @@ MODULE SmootherTypes
 
       INTEGER(SIK) :: icolor,i
       INTEGER(SIK),ALLOCATABLE :: tmpints(:)
+#ifdef PETSC_HAVE_FUTILITY
+      PetscErrorCode :: iperr
+#endif
 
       IF(.NOT. isSmootherListInit) &
         CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
@@ -646,6 +708,15 @@ MODULE SmootherTypes
               manager%colors(icolor)%index_list(tmpints(icolor))=i
             ENDDO
             DEALLOCATE(tmpints)
+            manager%hasColorDefined=.TRUE.
+            manager%hasAllColorsDefined=.TRUE.
+
+#ifdef PETSC_HAVE_FUTILITY
+            IF(smoother%isKSPSetup) THEN
+              CALL KSPSetTolerances(smoother%ksp,0.0_SRK,0.0_SRK,1E8_SRK, &
+                                    smoother%colorManager%num_colors,iperr)
+            ENDIF
+#endif
           ENDASSOCIATE
         CLASS DEFAULT
           CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
@@ -761,6 +832,7 @@ MODULE SmootherTypes
               "This subroutine is only for CBJ smoothers!")
       ENDSELECT
 
+
       iperr=0_SIK
     ENDSUBROUTINE PCSetup_CBJ
 #endif
@@ -779,16 +851,20 @@ MODULE SmootherTypes
       Vec,INTENT(INOUT) :: xin,xout
       PetscErrorCode,INTENT(INOUT) :: iperr
 
-      INTEGER(SIK) :: smootherID
+      INTEGER(SIK) :: smootherID,nlocal
       TYPE(C_PTR) :: ctx_ptr
       PetscInt,POINTER :: ctx(:)
+      PetscReal,POINTER :: xin_vals(:),xout_vals(:)
+
+      INTEGER(SIK) :: localrowstart,localrowend
+      INTEGER(SIK) :: i
 
       !Get the smoother ID:
       CALL PCShellGetContext(pc,ctx_ptr,iperr)
       CALL C_F_POINTER(ctx_ptr,ctx,(/1/))
       smootherID=ctx(1)
 
-      SELECTTYPE(smoother=>smootherList(smootherID)%smoother);
+      SELECTTYPE(smoother=>smootherList(smootherID)%smoother)
         TYPE IS(SmootherType_PETSc_CBJ)
           IF(.NOT. smoother%isInit) &
             CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
@@ -796,6 +872,39 @@ MODULE SmootherTypes
           IF(.NOT. smoother%colorManager%hasAllColorsDefined) &
             CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
                 "Smoother's color manager must have its colors defined first!")
+
+          nlocal=smoother%blk_size*(smoother%istp-smoother%istt+1)
+
+          CALL VecGetArrayReadF90(xin,xin_vals,iperr)
+          CALL VecGetArrayF90(xout,xout_vals,iperr)
+          !TODO rewrite LSTypes to allow for option to not store b or x
+          ! for each block.  We only need one instance of b or x at a time
+          ! we want to do threaded parallelism
+          ASSOCIATE(manager=>smoother%colorManager)
+            DO i=smoother%istt,smoother%istp
+            !Loop over all local blocks of color icolor
+              localrowstart=(i-smoother%istt)*smoother%blk_size+1
+              localrowend=(i-smoother%istt+1)*smoother%blk_size
+              IF(manager%color_ids(i) == smoother%icolor) THEN
+                SELECTTYPE(x => smoother%blockSolvers(i)%x)
+                TYPE IS(RealVectorType)
+                SELECTTYPE(b => smoother%blockSolvers(i)%b)
+                TYPE IS(RealVectorType)
+                  b%b=xin_vals(localrowstart:localrowend)
+                  CALL smoother%blockSolvers(i)%solve()
+                  xout_vals(localrowstart:localrowend)=x%b
+                ENDSELECT
+                ENDSELECT
+              ELSE
+                xout_vals(localrowstart:localrowend)=0.0_SRK
+              ENDIF
+            ENDDO
+            !Increment the color
+            smoother%icolor=smoother%icolor+1
+            IF(smoother%icolor > manager%num_colors) smoother%icolor=1_SIK
+          ENDASSOCIATE
+          CALL VecRestoreArrayF90(xout,xout_vals,iperr)
+          CALL VecRestoreArrayReadF90(xin,xin_vals,iperr)
         CLASS DEFAULT
           CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
               "This subroutine is only for CBJ smoothers!")
