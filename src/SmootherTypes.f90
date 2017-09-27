@@ -30,6 +30,8 @@ MODULE SmootherTypes
   USE ExceptionHandler
   USE ParameterLists
   USE ParallelEnv
+  USE LinearSolverTypes
+  USE MatrixTypes
   USE ISO_C_BINDING
   IMPLICIT NONE
 
@@ -60,12 +62,12 @@ MODULE SmootherTypes
   PUBLIC :: PCApply_CBJ
 #endif
 
-  !> Enumeration for smoother options
-  INTEGER(SIK),PARAMETER,PUBLIC :: CBJ=0
-  !> Enumeration for block solver options
-  INTEGER(SIK),PARAMETER,PUBLIC :: LU=0,SOR=1,ILU=2
-  !> set enumeration scheme for TPLs
-  INTEGER(SIK),PARAMETER,PUBLIC :: PETSC=0,NATIVE=4
+  !> TPL types from LinearSolverTypes:
+  PUBLIC :: PETSC,NATIVE
+  !> Smoother types, from LinearSolverTypes:
+  PUBLIC :: CBJ
+  !> Block solver types, from LinearSolverTypes:
+  PUBLIC :: LU,SOR,ILU
 
   !> @brief the base linear smoother type
   TYPE,ABSTRACT :: SmootherType_Base
@@ -160,6 +162,7 @@ MODULE SmootherTypes
   TYPE,EXTENDS(SmootherType_PETSc) :: SmootherType_PETSc_CBJ
     !> A type for managing the coloring scheme:
     TYPE(ColorManagerType) :: colorManager
+
   !
   !List of Type Bound Procedures
     CONTAINS
