@@ -93,6 +93,8 @@ MODULE SmootherTypes
     INTEGER(SIK) :: istp=-1_SIK
     !> Block size (number of unknowns per point):
     INTEGER(SIK) :: blk_size=-1_SIK
+    !> Solvers for all the blocks:
+    CLASS(LinearSolverType_Base),ALLOCATABLE :: blockSolvers(:)
 
   !
   !List of Type Bound Procedures
@@ -192,6 +194,34 @@ MODULE SmootherTypes
       TYPE(C_PTR) :: ctx_ptr
       PetscErrorCode :: iperr
     ENDSUBROUTINE PCShellGetContext
+  ENDINTERFACE
+
+  INTERFACE
+    SUBROUTINE MatSeqAIJGetArrayF90(A,xx_v,iperr)
+      Mat :: A
+      PetscReal, POINTER :: xx_v(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE MatSeqAIJGetArrayF90
+  ENDINTERFACE
+
+  INTERFACE
+    SUBROUTINE MatGetRowIJF90(A,shift,symmetric,inodecompressed,n,ia,ja,done,iperr)
+      Mat :: A
+      PetscInt :: shift,n
+      PetscBool :: symmetric,inodecompressed,done
+      PetscInt,POINTER :: ia(:),ja(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE MatGetRowIJF90
+  ENDINTERFACE
+
+  INTERFACE
+    SUBROUTINE MatRestoreRowIJF90(A,shift,symmetric,inodecompressed,n,ia,ja,done,iperr)
+      Mat :: A
+      PetscInt :: shift,n
+      PetscBool :: symmetric,inodecompressed,done
+      PetscInt,POINTER :: ia(:),ja(:)
+      PetscErrorCode :: iperr
+    ENDSUBROUTINE MatRestoreRowIJF90
   ENDINTERFACE
 
   !> Explicitly defines the interface for the clear routines
@@ -303,10 +333,17 @@ MODULE SmootherTypes
     SUBROUTINE clear_SmootherType_PETSc_CBJ(smoother)
       CHARACTER(LEN=*),PARAMETER :: myName='clear_SmootherType_PETSc_CBJ'
       CLASS(SmootherType_PETSc_CBJ),INTENT(INOUT) :: smoother
-      INTEGER(SIK) :: icolor
+
+      INTEGER(SIK) :: i
 
       CALL smoother%colorManager%clear()
       CALL smoother%MPIparallelEnv%clear()
+      IF(ALLOCATED(smoother%blockSolvers)) THEN
+        DO i=smoother%istt,smoother%istp
+          CALL smoother%blockSolvers(i)%clear()
+        ENDDO
+        DEALLOCATE(smoother%blockSolvers)
+      ENDIF
       smoother%isKSPSetup=.FALSE.
       smoother%isInit=.FALSE.
 
@@ -630,9 +667,19 @@ MODULE SmootherTypes
       PC,INTENT(INOUT) :: pc
       PetscErrorCode,INTENT(INOUT) :: iperr
 
-      INTEGER(SIK) :: smootherID
+      INTEGER(SIK) :: smootherID,nnz
+      INTEGER(SIK) :: localrowstart,localrowend,localcolind,rowstart
+      INTEGER(SIK) :: blockrowind,blockcolind
       TYPE(C_PTR) :: ctx_ptr
-      PetscInt,POINTER :: ctx(:)
+      PetscInt,POINTER :: ctx(:),ia(:),ja(:)
+      PetscInt :: numrows
+      PetscReal,POINTER :: matvals(:)
+      TYPE(ParamType) :: params
+      Mat :: Amat,Pmat
+      Mat :: localmat
+      PetscBool :: done
+      !Iteration variables:
+      INTEGER(SIK) :: i,j,localrowind
 
       !Get the smoother ID:
       CALL PCShellGetContext(pc,ctx_ptr,iperr)
@@ -647,6 +694,68 @@ MODULE SmootherTypes
           IF(.NOT. smoother%colorManager%hasAllColorsDefined) &
             CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
                 "Smoother's color manager must have its colors defined first!")
+
+          IF(.NOT. ALLOCATED(smoother%blockSolvers)) THEN
+            ALLOCATE(LinearSolverType_Direct :: &
+                      smoother%blockSolvers(smoother%istt:smoother%istp))
+            CALL params%clear()
+            CALL params%add('LinearSolverType->TPLType',NATIVE)
+            CALL params%add('LinearSolverType->solverMethod',LU)
+            CALL params%add('LinearSolverType->MPI_Comm_ID', &
+                              smoother%MPIparallelEnv%comm)
+            CALL params%add('LinearSolverType->matType',DENSESQUARE)
+            CALL params%add('LinearSolverType->A->MatrixType->n',smoother%blk_size)
+            CALL params%add('LinearSolverType->A->MatrixType->isSym',.FALSE.)
+            CALL params%add('LinearSolverType->x->VectorType->n',smoother%blk_size)
+            CALL params%add('LinearSolverType->b->VectorType->n',smoother%blk_size)
+            !Get the block matrices:
+            CALL PCGetOperators(pc,Amat,Pmat,iperr)
+            CALL MatMPIAIJGetLocalMat(Pmat,MAT_INITIAL_MATRIX,localmat,iperr)
+            CALL MatSeqAIJGetArrayF90(localmat,matvals,iperr)
+            CALL MatGetRowIJF90(localmat,1_SIK,PETSC_FALSE,PETSC_FALSE, &
+                                  numrows,ia,ja,done,iperr)
+            nnz=ia(numrows+1)-1
+            IF(.NOT. done) &
+              CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
+                  "Unable to retrieve row and column indices!")
+
+            !Global --> global indices, includes all procs, 1:total prob size
+            !Local --> local to processor, 1:local prob size
+            !Block --> local to block, 1:blk_size
+            rowstart=(smoother%istt-1)*smoother%blk_size+1
+            !rowend=smoother%istp*smoother%blk_size
+            DO i=smoother%istt,smoother%istp
+            !Loop over all local blocks
+              CALL smoother%blockSolvers(i)%init(params)
+              localrowstart=(i-smoother%istt)*smoother%blk_size+1
+              localrowend=(i-smoother%istt+1)*smoother%blk_size
+              SELECTTYPE(A => smoother%blockSolvers(i)%A)
+                TYPE IS(DenseSquareMatrixType)
+                  A%a=0.0_SRK
+                  DO localrowind=localrowstart,localrowend
+                  !Loop over rows corresponding to block i
+                    blockrowind=localrowind-localrowstart+1
+                    DO j=ia(localrowind),ia(localrowind+1)-1
+                    !Loop over nonzero entries of row localrowind
+                      localcolind=ja(j)-rowstart+1
+                      !If it is not in the diagonal block, continue
+                      IF(localcolind < localrowstart .OR. &
+                         localcolind > localrowend) CYCLE
+                      !Otherwise, store the value in a densesquarematrix:
+                      blockcolind=localcolind-localrowstart+1
+                      A%a(blockrowind,blockcolind)=matvals(j)
+                    ENDDO !j=i
+                  ENDDO !localrowind
+              ENDSELECT !smoother%blockSolvers(i)%A
+            ENDDO !i=istt,istp
+            CALL MatRestoreRowIJF90(localmat,1_SIK,PETSC_FALSE,PETSC_FALSE, &
+                                  numrows,ia,ja,done,iperr)
+            IF(.NOT. done) &
+              CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
+                  "Unable to restore row and column indices!")
+            CALL MatSeqAIJRestoreArrayF90(localmat,matvals,iperr)
+            CALL params%clear()
+          ENDIF
         CLASS DEFAULT
           CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
               "This subroutine is only for CBJ smoothers!")
