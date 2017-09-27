@@ -33,6 +33,7 @@ MODULE SmootherTypes
   USE LinearSolverTypes
   USE MatrixTypes
   USE VectorTypes
+  USE MultigridMesh
   USE ISO_C_BINDING
   IMPLICIT NONE
 
@@ -183,6 +184,8 @@ MODULE SmootherTypes
   TYPE(ExceptionHandlerType),SAVE :: eSmootherType
 
   !PETSC INTERFACES
+  !When in doubt, write an interface.  There's a good chance it'll solve your
+  !  problem with PETSc.
 #ifdef FUTILITY_HAVE_PETSC
   INTERFACE
     SUBROUTINE PCShellSetContext(mypc,ctx,iperr)
@@ -537,7 +540,7 @@ MODULE SmootherTypes
 
       INTEGER(SIK),ALLOCATABLE :: istt_list(:),istp_list(:)
       INTEGER(SIK),ALLOCATABLE :: blk_size_list(:),num_colors_list(:)
-      INTEGER(SIK),ALLOCATABLE :: solverMethod_list(:),blockMethod_list(:)
+      INTEGER(SIK),ALLOCATABLE :: smootherMethod_list(:),blockMethod_list(:)
       INTEGER(SIK),ALLOCATABLE :: MPI_Comm_ID_list(:)
       TYPE(ParamType) :: params_out
 
@@ -546,7 +549,7 @@ MODULE SmootherTypes
               params%has('SmootherType->istt_list') .AND. &
               params%has('SmootherType->istp_list') .AND. &
               params%has('SmootherType->blk_size_list') .AND. &
-              params%has('SmootherType->solverMethod_list') .AND. &
+              params%has('SmootherType->smootherMethod_list') .AND. &
               params%has('SmootherType->MPI_Comm_ID_list')
       IF(.NOT. tmpbool) &
         CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
@@ -557,14 +560,14 @@ MODULE SmootherTypes
       ALLOCATE(istt_list(num_smoothers))
       ALLOCATE(istp_list(num_smoothers))
       ALLOCATE(blk_size_list(num_smoothers))
-      ALLOCATE(solverMethod_list(num_smoothers))
+      ALLOCATE(smootherMethod_list(num_smoothers))
       ALLOCATE(blockMethod_list(num_smoothers))
       ALLOCATE(num_colors_list(num_smoothers))
       ALLOCATE(MPI_Comm_ID_list(num_smoothers))
       CALL params%get('SmootherType->istt_list',istt_list)
       CALL params%get('SmootherType->istp_list',istp_list)
       CALL params%get('SmootherType->blk_size_list',blk_size_list)
-      CALL params%get('SmootherType->solverMethod_list',solverMethod_list)
+      CALL params%get('SmootherType->smootherMethod_list',smootherMethod_list)
       IF(params%has('SmootherType->blockMethod_list')) THEN
         CALL params%get('SmootherType->blockMethod_list',blockMethod_list)
       ELSE
@@ -585,16 +588,16 @@ MODULE SmootherTypes
         CALL params_out%add('SmootherType->istt',istt_list(ismoother))
         CALL params_out%add('SmootherType->istp',istp_list(ismoother))
         CALL params_out%add('SmootherType->blk_size',blk_size_list(ismoother))
-        CALL params_out%add('SmootherType->solverMethod',solverMethod_list(ismoother))
+        CALL params_out%add('SmootherType->smootherMethod',smootherMethod_list(ismoother))
         CALL params_out%add('SmootherType->blockMethod',blockMethod_list(ismoother))
         CALL params_out%add('SmootherType->num_colors',num_colors_list(ismoother))
         CALL params_out%add('SmootherType->MPI_Comm_ID',MPI_Comm_ID_list(ismoother))
-        SELECTCASE(solverMethod_list(ismoother))
+        SELECTCASE(smootherMethod_list(ismoother))
           CASE(CBJ)
             ALLOCATE(SmootherType_PETSc_CBJ :: smootherList(ismoother)%smoother)
           CASE DEFAULT
-            CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
-                "Invalid smoother method!")
+            CALL eSmootherType%raiseDebug(modName//"::"//myName//" - "// &
+                "Unknown smoother method, not allocating smoother for this level!")
         ENDSELECT
         CALL smootherList(ismoother)%smoother%init(params_out)
       ENDDO
