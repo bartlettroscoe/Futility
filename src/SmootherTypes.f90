@@ -751,6 +751,7 @@ MODULE SmootherTypes
 
 #ifdef PETSC_HAVE_FUTILITY
             IF(manager%hasAllColorsDefined .AND. smoother%isKSPSetup) THEN
+              !TODO allow for multiple RB iterations from param list.
               CALL KSPSetTolerances(smoother%ksp,0.0_SRK,0.0_SRK,1E8_SRK, &
                                     smoother%colorManager%num_colors,iperr)
             ENDIF
@@ -878,8 +879,8 @@ MODULE SmootherTypes
             CALL params%clear()
             CALL params%add('LinearSolverType->TPLType',NATIVE)
             CALL params%add('LinearSolverType->solverMethod',LU)
-            CALL params%add('LinearSolverType->MPI_Comm_ID', &
-                              smoother%MPIparallelEnv%comm)
+            !This part is serial, so we don't need an MPI communicator
+            CALL params%add('LinearSolverType->MPI_Comm_ID',-1_SIK)
             CALL params%add('LinearSolverType->matType',DENSESQUARE)
             CALL params%add('LinearSolverType->A->MatrixType->n',smoother%blk_size)
             CALL params%add('LinearSolverType->A->MatrixType->isSym',.FALSE.)
