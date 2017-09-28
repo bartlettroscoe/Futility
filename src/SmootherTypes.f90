@@ -47,7 +47,6 @@ MODULE SmootherTypes
 !
 ! List of public members
   PUBLIC :: eSmootherType
-  PUBLIC :: IndexList
   PUBLIC :: isSmootherListInit
   PUBLIC :: num_smoothers
   !Public smoother list manager functions:
@@ -458,8 +457,10 @@ MODULE SmootherTypes
 
       IF(ALLOCATED(smootherList)) THEN
         DO ismoother=1,num_smoothers
-          CALL smootherList(ismoother)%smoother%clear()
-          DEALLOCATE(smootherList(ismoother)%smoother)
+          IF(ALLOCATED(smootherList(ismoother)%smoother)) THEN
+            CALL smootherList(ismoother)%smoother%clear()
+            DEALLOCATE(smootherList(ismoother)%smoother)
+          ENDIF
         ENDDO
         DEALLOCATE(smootherList)
       ENDIF
@@ -599,10 +600,19 @@ MODULE SmootherTypes
             CALL eSmootherType%raiseDebug(modName//"::"//myName//" - "// &
                 "Unknown smoother method, not allocating smoother for this level!")
         ENDSELECT
-        CALL smootherList(ismoother)%smoother%init(params_out)
+        IF(ALLOCATED(smootherList(ismoother)%smoother)) &
+          CALL smootherList(ismoother)%smoother%init(params_out)
       ENDDO
 
       isSmootherListInit=.TRUE.
+
+      DEALLOCATE(istt_list)
+      DEALLOCATE(istp_list)
+      DEALLOCATE(blk_size_list)
+      DEALLOCATE(smootherMethod_list)
+      DEALLOCATE(blockMethod_list)
+      DEALLOCATE(num_colors_list)
+      DEALLOCATE(MPI_Comm_ID_list)
 
     ENDSUBROUTINE smootherManager_init
 !
