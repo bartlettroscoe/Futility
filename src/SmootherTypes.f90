@@ -794,7 +794,7 @@ MODULE SmootherTypes
     SUBROUTINE smootherManager_defineAllColors(ismoother,color_ids)
       CHARACTER(LEN=*),PARAMETER :: myName='defineAllColors_ColorManagerType'
       INTEGER(SIK),INTENT(IN) :: ismoother
-      INTEGER(SIK),INTENT(IN) :: color_ids(:)
+      INTEGER(SIK),INTENT(IN),ALLOCATABLE :: color_ids(:)
 
       INTEGER(SIK) :: icolor,i
       INTEGER(SIK),ALLOCATABLE :: tmpints(:)
