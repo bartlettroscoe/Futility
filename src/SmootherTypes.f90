@@ -739,6 +739,10 @@ MODULE SmootherTypes
 
       INTEGER(SIK) :: i,num_indices
 
+#ifdef FUTILITY_HAVE_PETSC
+      PetscErrorCode :: iperr
+#endif
+
       IF(.NOT. isSmootherListInit) &
         CALL eSmootherType%raiseError(modName//"::"//myName//" - "// &
             "Smoother list has not been initialized!")
@@ -764,7 +768,7 @@ MODULE SmootherTypes
             manager%hasColorDefined(icolor)=.TRUE.
             manager%hasAllColorsDefined=ALL(manager%hasColorDefined)
 
-#ifdef PETSC_HAVE_FUTILITY
+#ifdef FUTILITY_HAVE_PETSC
             IF(manager%hasAllColorsDefined .AND. smoother%isKSPSetup) THEN
               !TODO allow for multiple RB iterations from param list.
               CALL KSPSetTolerances(smoother%ksp,0.0_SRK,0.0_SRK,1E8_SRK, &
@@ -794,7 +798,7 @@ MODULE SmootherTypes
 
       INTEGER(SIK) :: icolor,i
       INTEGER(SIK),ALLOCATABLE :: tmpints(:)
-#ifdef PETSC_HAVE_FUTILITY
+#ifdef FUTILITY_HAVE_PETSC
       PetscErrorCode :: iperr
 #endif
 
@@ -838,9 +842,10 @@ MODULE SmootherTypes
             manager%hasColorDefined=.TRUE.
             manager%hasAllColorsDefined=.TRUE.
 
-#ifdef PETSC_HAVE_FUTILITY
+#ifdef FUTILITY_HAVE_PETSC
             IF(smoother%isKSPSetup) THEN
               !TODO: more smoother steps per iteration
+              !TODO need to put this in a different place... KSP is not always set up by this point
               CALL KSPSetTolerances(smoother%ksp,0.0_SRK,0.0_SRK,1E8_SRK, &
                                     smoother%colorManager%num_colors,iperr)
             ENDIF
